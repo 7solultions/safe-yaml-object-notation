@@ -1771,4 +1771,87 @@ mod tests {
         assert_eq!(items[0].line, 2);
         assert_eq!(items[1].line, 3);
     }
+
+    // --- Nested structure stress tests ---
+
+    #[test]
+    fn sequence_of_mappings() {
+        let input = "people:\n  -\n    name: alice\n    age: 30\n  -\n    name: bob\n    age: 25\n";
+        let doc = parse_document(input).unwrap();
+        let Value::Mapping(root) = &doc.body else { panic!("expected root Mapping") };
+        assert_eq!(root[0].key, "people");
+        let Value::Sequence(items) = &root[0].value else { panic!("expected Sequence") };
+        assert_eq!(items.len(), 2);
+        let Value::Mapping(first) = &items[0].value else { panic!("expected item Mapping") };
+        assert_eq!(first[0].key, "name");
+        assert_eq!(first[0].value, Value::Scalar("alice".into()));
+        assert_eq!(first[1].key, "age");
+        assert_eq!(first[1].value, Value::Scalar("30".into()));
+        let Value::Mapping(second) = &items[1].value else { panic!("expected item Mapping") };
+        assert_eq!(second[0].key, "name");
+        assert_eq!(second[0].value, Value::Scalar("bob".into()));
+    }
+
+    #[test]
+    fn triple_nested_map_seq_map() {
+        let input = "config:\n  items:\n    -\n      key: value\n      extra: data\n";
+        let doc = parse_document(input).unwrap();
+        let Value::Mapping(root) = &doc.body else { panic!("expected root Mapping") };
+        let Value::Mapping(config) = &root[0].value else { panic!("expected config Mapping") };
+        assert_eq!(config[0].key, "items");
+        let Value::Sequence(items) = &config[0].value else { panic!("expected Sequence") };
+        assert_eq!(items.len(), 1);
+        let Value::Mapping(inner) = &items[0].value else { panic!("expected inner Mapping") };
+        assert_eq!(inner[0].key, "key");
+        assert_eq!(inner[0].value, Value::Scalar("value".into()));
+        assert_eq!(inner[1].key, "extra");
+        assert_eq!(inner[1].value, Value::Scalar("data".into()));
+    }
+
+    #[test]
+    fn sibling_sequences_at_different_depths() {
+        let input = "top_list:\n  - a\n  - b\nnested:\n  inner_list:\n    - c\n    - d\n";
+        let doc = parse_document(input).unwrap();
+        let Value::Mapping(root) = &doc.body else { panic!("expected root Mapping") };
+        assert_eq!(root.len(), 2);
+        let Value::Sequence(top) = &root[0].value else { panic!("expected top Sequence") };
+        assert_eq!(top.len(), 2);
+        assert_eq!(top[0].value, Value::Scalar("a".into()));
+        let Value::Mapping(nested) = &root[1].value else { panic!("expected nested Mapping") };
+        let Value::Sequence(inner) = &nested[0].value else { panic!("expected inner Sequence") };
+        assert_eq!(inner.len(), 2);
+        assert_eq!(inner[0].value, Value::Scalar("c".into()));
+    }
+
+    #[test]
+    fn mixed_block_scalars_and_sequence() {
+        let input = "root:\n  label: hello\n  items:\n    - one\n    - two\n  count: 3\n";
+        let doc = parse_document(input).unwrap();
+        let Value::Mapping(root) = &doc.body else { panic!("expected root Mapping") };
+        let Value::Mapping(inner) = &root[0].value else { panic!("expected inner Mapping") };
+        assert_eq!(inner.len(), 3);
+        assert_eq!(inner[0].key, "label");
+        assert_eq!(inner[0].value, Value::Scalar("hello".into()));
+        assert_eq!(inner[1].key, "items");
+        let Value::Sequence(items) = &inner[1].value else { panic!("expected Sequence") };
+        assert_eq!(items.len(), 2);
+        assert_eq!(inner[2].key, "count");
+        assert_eq!(inner[2].value, Value::Scalar("3".into()));
+    }
+
+    #[test]
+    fn dedent_to_root_after_deep_nesting() {
+        let input = "deep:\n  level1:\n    level2:\n      leaf: value\nback_at_root: yes\n";
+        let doc = parse_document(input).unwrap();
+        let Value::Mapping(root) = &doc.body else { panic!("expected root Mapping") };
+        assert_eq!(root.len(), 2);
+        assert_eq!(root[0].key, "deep");
+        assert_eq!(root[1].key, "back_at_root");
+        assert_eq!(root[1].value, Value::Scalar("yes".into()));
+        let Value::Mapping(l1) = &root[0].value else { panic!("expected level1 Mapping") };
+        let Value::Mapping(l2) = &l1[0].value else { panic!("expected level2 Mapping") };
+        let Value::Mapping(leaf_map) = &l2[0].value else { panic!("expected leaf Mapping") };
+        assert_eq!(leaf_map[0].key, "leaf");
+        assert_eq!(leaf_map[0].value, Value::Scalar("value".into()));
+    }
 }
