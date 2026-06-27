@@ -1,7 +1,10 @@
-use pyo3::exceptions::PyValueError;
+use pyo3::create_exception;
+use pyo3::exceptions::PyException;
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
 use syon_parser::Value;
+
+create_exception!(syon, SyonError, PyException);
 
 fn value_to_py(py: Python<'_>, val: &Value) -> PyResult<PyObject> {
     match val {
@@ -27,14 +30,31 @@ fn value_to_py(py: Python<'_>, val: &Value) -> PyResult<PyObject> {
 
 #[pyfunction]
 fn parse(py: Python<'_>, input: &str) -> PyResult<PyObject> {
-    let file = syon_parser::parse(input).map_err(|e| PyValueError::new_err(e.to_string()))?;
-    let first = file.documents.into_iter().next()
-        .ok_or_else(|| PyValueError::new_err("no documents"))?;
+    let file = syon_parser::parse(input)
+        .map_err(|e| SyonError::new_err(e.to_string()))?;
+    let first = file
+        .documents
+        .into_iter()
+        .next()
+        .ok_or_else(|| SyonError::new_err("no documents"))?;
     value_to_py(py, &first.body)
 }
 
+#[pyfunction]
+fn parse_documents(py: Python<'_>, input: &str) -> PyResult<PyObject> {
+    let file = syon_parser::parse(input)
+        .map_err(|e| SyonError::new_err(e.to_string()))?;
+    let list = PyList::empty_bound(py);
+    for doc in &file.documents {
+        list.append(value_to_py(py, &doc.body)?)?;
+    }
+    Ok(list.into())
+}
+
 #[pymodule]
-fn syon(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
+fn syon(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add("SyonError", py.get_type_bound::<SyonError>())?;
     m.add_function(wrap_pyfunction!(parse, m)?)?;
+    m.add_function(wrap_pyfunction!(parse_documents, m)?)?;
     Ok(())
 }
