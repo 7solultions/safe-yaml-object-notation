@@ -94,3 +94,8 @@ tasks:
     dir: syon-go
     cmds:
       - go run ./cmd/phase1 {{.CLI_ARGS}}
+
+  test-python-bindings:
+    desc: Run pytest suite for the Python extension
+    cmds:
+      - python3 -m pytest crates/syon-python/tests/ -v
