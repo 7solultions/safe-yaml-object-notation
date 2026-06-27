@@ -99,3 +99,10 @@ tasks:
     desc: Run pytest suite for the Python extension
     cmds:
       - python3 -m pytest crates/syon-python/tests/ -v
+
+  test-ffi-bindings:
+    desc: Compile and run C FFI integration test
+    cmds:
+      - cargo build -p syon-parser --release
+      - cc tests/ffi/test_ffi.c -L target/release -lsyon_parser -o /tmp/test_ffi
+      - /tmp/test_ffi
