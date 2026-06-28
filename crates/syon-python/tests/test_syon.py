@@ -103,3 +103,62 @@ def test_dedent_to_root_after_deep_nesting():
     result = syon.parse(src)
     assert result["back_at_root"] == "yes"
     assert result["deep"]["level1"]["level2"]["leaf"] == "value"
+
+
+# --- Comprehensive SyonError assertion tests ---
+
+def test_error_yaml_tag():
+    with pytest.raises(syon.SyonError, match=r"(?i)tag|forbidden|!!"):
+        syon.parse("value: !!str hello\n")
+
+
+def test_error_anchor():
+    with pytest.raises(syon.SyonError, match=r"(?i)anchor|forbidden|&"):
+        syon.parse("base: &anchor value\n")
+
+
+def test_error_alias():
+    with pytest.raises(syon.SyonError, match=r"(?i)alias|forbidden|\*"):
+        syon.parse("ref: *anchor\n")
+
+
+def test_error_flow_mapping():
+    with pytest.raises(syon.SyonError, match=r"(?i)flow|forbidden|\{"):
+        syon.parse("obj: {a: 1, b: 2}\n")
+
+
+def test_error_flow_sequence():
+    with pytest.raises(syon.SyonError, match=r"(?i)flow|forbidden|\["):
+        syon.parse("list: [1, 2, 3]\n")
+
+
+def test_error_doc_start_marker():
+    with pytest.raises(syon.SyonError, match=r"(?i)forbidden|---"):
+        syon.parse("---\nkey: value\n")
+
+
+def test_error_complex_key():
+    with pytest.raises(syon.SyonError, match=r"(?i)forbidden|complex|key|\?"):
+        syon.parse("? complex key\n: value\n")
+
+
+def test_error_key_starting_with_operator():
+    with pytest.raises(syon.SyonError):
+        syon.parse(": bad key\n")
+
+
+def test_error_tab_indentation():
+    with pytest.raises(syon.SyonError, match=r"(?i)tab|indent"):
+        syon.parse("key:\n\tchild: value\n")
+
+
+def test_syon_error_is_exception():
+    assert issubclass(syon.SyonError, Exception)
+
+
+def test_error_has_position_info():
+    try:
+        syon.parse("valid: line\ninvalid: !!str boom\n")
+    except syon.SyonError as e:
+        msg = str(e)
+        assert any(c.isdigit() for c in msg)

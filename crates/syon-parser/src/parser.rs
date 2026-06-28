@@ -121,6 +121,13 @@ fn preflight(input: &str) -> Result<(), SyonError> {
         let ln = i + 1;
         let t = line.trim_start();
 
+        // Tabs anywhere in the leading whitespace are forbidden (SYON uses spaces only).
+        if line.chars().take_while(|c| c.is_whitespace()).any(|c| c == '\t') {
+            return Err(SyonError::Syntax(format!(
+                "line {ln}: tab character in indentation is not allowed in SYON (use spaces)"
+            )));
+        }
+
         // A single leading `---` is harmless: it opens the one document this
         // file contains. What SYON forbids is a multi-document stream, so
         // only a marker after content has begun is an error.
