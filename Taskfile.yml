@@ -65,3 +65,21 @@ tasks:
     desc: Build syon-parser cdylib and staticlib in release mode
     cmds:
       - cargo build -p syon-parser --release
+
+  docs-sync-spec:
+    desc: Copy spec/ into docs/spec/ so the Zensical site can include it
+    cmds:
+      - mkdir -p docs/spec
+      - cp spec/*.md docs/spec/
+
+  docs-build:
+    desc: Build the Zensical documentation site into site/ (requires `pip install zensical`)
+    deps: [docs-sync-spec]
+    cmds:
+      - zensical build
+
+  docs-serve:
+    desc: Serve the Zensical documentation site locally with live reload (requires `pip install zensical`)
+    deps: [docs-sync-spec]
+    cmds:
+      - zensical serve

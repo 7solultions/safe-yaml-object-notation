@@ -13,6 +13,12 @@ target
 # Contains mutation testing data
 **/mutants.out*/
 
+# Zensical documentation site
+# `docs/spec` is a synced copy of `spec/` (see `task docs-sync-spec`);
+# `site` is the built static site.
+/docs/spec/
+/site/
+
 # RustRover
 #  JetBrains specific template is maintained in a separate JetBrains.gitignore that can
 #  be found at https://github.com/github/gitignore/blob/main/Global/JetBrains.gitignore
