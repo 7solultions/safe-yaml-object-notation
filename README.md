@@ -30,6 +30,18 @@ task run-cli-binary -- examples/hello.syon
 
 See [`spec/README.md`](spec/README.md) for the full language specification.
 
+## Documentation
+
+The [`docs/`](docs) directory holds a [Zensical](https://zensical.org)
+documentation site (getting started, language guide, CLI reference, Python
+bindings, and the glossary example). Build it with:
+
+```bash
+pip install zensical
+task docs-serve   # local live-reload preview at http://localhost:8000
+task docs-build   # static site in site/
+```
+
 ## License
 
 MIT
