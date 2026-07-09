@@ -4,6 +4,21 @@ SYON documents are built from three block types, which can appear at any
 nesting level. The full normative rules live in the [specification](spec/01-lexer.md);
 this page is a practical overview.
 
+## Relationship to YAML
+
+Only [Block 1](#block-1-record-yaml-block-style-subset) is a strict, safe
+subset of YAML 1.2 block style: every valid Block-1-only SYON document is
+valid YAML, but not every valid YAML document is valid SYON (see
+[what's forbidden](#safety-whats-forbidden) below).
+
+SYON as a whole is **not** a YAML subset. [Block 2](#block-2-document-fence)
+and [Block 3](#block-3-literal-escape-hatch) are SYON-specific syntax with no
+YAML equivalent — a ` ```path.format ` fence or a `[[[`/`]]]` delimiter isn't
+valid YAML, so a document using either block type can't be parsed by a YAML
+1.2 parser. In particular, SYON doesn't use YAML's native `---`/`...`
+multi-document markers, but Block 2 fences do provide multi-document-style
+embedding of arbitrary content through a different, SYON-only mechanism.
+
 ## Block 1 — Record (YAML block-style subset)
 
 The primary block type: indentation-based mappings and sequences, using the
@@ -63,7 +78,7 @@ A conforming SYON parser rejects the following YAML constructs:
 | `&anchor` / `*alias` | Enable reference cycles |
 | `{…}` flow mappings / `[…]` flow sequences | Disallowed flow style |
 | `?` complex key | Not needed in the safe subset |
-| `---` / `...` document markers | No multi-document streams |
+| `---` / `...` document markers | Superseded by [Block 2 document fences](#block-2-document-fence) |
 | Duplicate keys in a mapping | Ambiguous — always a parse error |
 
 ## Strings-only boundary

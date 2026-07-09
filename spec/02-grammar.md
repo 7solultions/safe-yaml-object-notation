@@ -67,8 +67,8 @@ The following YAML constructs MUST be rejected by a conforming SYON parser:
 | `[…]` flow sequences | Disallowed flow style |
 | `,` as flow separator | Part of disallowed flow style |
 | `?` complex key | Not needed in the safe subset |
-| `---` explicit document-start marker | No multi-document streams |
-| `...` document-end marker | No multi-document streams |
+| `---` explicit document-start marker | Superseded by Block 2 document fences (see above) |
+| `...` document-end marker | Superseded by Block 2 document fences (see above) |
 
 ## Formal grammar (EBNF excerpt)
 

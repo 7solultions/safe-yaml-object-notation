@@ -1,8 +1,11 @@
 # SYON — Safe YAML Object Notation
 
 SYON is a YAML-inspired, minimal object-notation language designed for safety and predictability.
-It supports the core data model of YAML — scalars, sequences, and mappings — while deliberately
-excluding anchors, aliases, arbitrary tags, and multi-document streams.
+Its core record syntax supports the data model of YAML — scalars, sequences, and mappings —
+while deliberately excluding anchors, aliases, and arbitrary tags. That core syntax alone is a
+strict, safe subset of YAML; SYON as a whole is not, since it adds document fences and literal
+blocks with no YAML equivalent. See [`spec/README.md`](spec/README.md#relationship-to-yaml) for
+the full picture.
 
 ## Goals
 

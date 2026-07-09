@@ -10,11 +10,22 @@ This directory contains the normative specification for Safe YAML Object Notatio
 
 ## Relationship to YAML
 
-SYON is a strict *safe subset* of YAML 1.2:
+Only SYON's Block 1 (record) syntax is a strict *safe subset* of YAML 1.2
+block style:
 
-- Every valid SYON document is a valid YAML document.
-- Not every valid YAML document is a valid SYON document.
+- Every valid Block-1-only SYON document is a valid YAML document.
+- Not every valid YAML document is a valid SYON document (see the forbidden
+  set in `02-grammar.md`).
 
-Excluded features: anchors (`&`), aliases (`*`), explicit tags (`!!`),
-directives (`%YAML`, `%TAG`), multi-document streams (`---`/`...`),
-block scalars (`|`, `>`), flow indicators used outside inline context.
+SYON as a whole is **not** a YAML subset. Block 2 (document fences) and
+Block 3 (literal escape hatches) are SYON-specific syntax with no YAML
+equivalent — a ` ```path.format ` fence or a `[[[`/`]]]` delimiter is not
+valid YAML, so a document using either block type cannot be parsed by a
+YAML 1.2 parser. In particular, SYON does not use YAML's native `---`/`...`
+multi-document markers, but Block 2 fences do provide multi-document-style
+embedding of arbitrary content through a different, SYON-only mechanism.
+
+Excluded (Block 1 / YAML block style) features: anchors (`&`), aliases
+(`*`), explicit tags (`!!`), directives (`%YAML`, `%TAG`), YAML's native
+`---`/`...` document markers, YAML block scalars (`|`, `>`), flow
+indicators used outside inline context.
