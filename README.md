@@ -25,7 +25,7 @@ spec/            # language specification
 ## Quick start
 
 ```bash
-task build-parser-crate
+task build-parser
 task run-cli-binary -- examples/hello.syon
 ```
 

@@ -1,7 +1,7 @@
 version: '3'
 
 tasks:
-  build-parser-crate:
+  build-parser:
     desc: Compile the syon-parser library crate
     cmds:
       - cargo build -p syon-parser
@@ -11,17 +11,17 @@ tasks:
     cmds:
       - cargo build -p syon-cli
 
-  build-all-crates:
+  build-all:
     desc: Compile every crate in the workspace
     cmds:
       - cargo build --workspace
 
-  test-parser-crate:
+  test-parser:
     desc: Run unit tests for syon-parser
     cmds:
       - cargo test -p syon-parser
 
-  test-all-crates:
+  test-all:
     desc: Run unit tests for every workspace crate
     cmds:
       - cargo test --workspace
@@ -31,17 +31,17 @@ tasks:
     cmds:
       - cargo run -p syon-cli -- {{.CLI_ARGS}}
 
-  check-all-crates:
+  check-all:
     desc: Type-check the whole workspace without producing artifacts
     cmds:
       - cargo check --workspace
 
-  lint-all-crates:
+  lint-all:
     desc: Run Clippy on the whole workspace
     cmds:
       - cargo clippy --workspace -- -D warnings
 
-  format-all-crates:
+  format-all:
     desc: Format every source file with rustfmt
     cmds:
       - cargo fmt --all
