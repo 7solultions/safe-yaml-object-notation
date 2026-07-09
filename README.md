@@ -42,6 +42,12 @@ task docs-serve   # local live-reload preview at http://localhost:8000
 task docs-build   # static site in site/
 ```
 
+On push to `main`, [`.github/workflows/docs.yml`](.github/workflows/docs.yml)
+builds and publishes the site to GitHub Pages at
+<https://object-notation-environment.github.io/safe-yaml-object-notation/>.
+This requires enabling Pages once, in the repo's **Settings → Pages**, with
+**Source** set to **GitHub Actions**.
+
 ## License
 
 MIT

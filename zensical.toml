@@ -3,6 +3,7 @@
 site_name = "SYON"
 site_description = "SYON — Safe YAML Object Notation: a minimal, safe subset of YAML."
 site_author = "SYON contributors"
+site_url = "https://object-notation-environment.github.io/safe-yaml-object-notation/"
 copyright = """
 Copyright &copy; 2026 The SYON authors
 """
