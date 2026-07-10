@@ -16,7 +16,7 @@ cargo build --workspace
 or, using the task runner:
 
 ```bash
-task build-all-crates
+task build-all
 ```
 
 ## Parse your first file
@@ -25,7 +25,7 @@ The `syon-cli` crate builds a `syon` binary that parses a `.syon` file and
 prints its AST as JSON:
 
 ```bash
-task build-parser-crate
+task build-parser
 task run-cli-binary -- examples/glossary/entries/syon.syon
 ```
 
@@ -38,18 +38,18 @@ cargo run -p syon-cli -- examples/glossary/entries/syon.syon
 ## Run the tests
 
 ```bash
-task test-all-crates
+task test-all
 # or, just the parser crate:
-task test-parser-crate
+task test-parser
 ```
 
 ## Other useful tasks
 
 | Task | What it does |
 |------|---------------|
-| `task check-all-crates` | Type-check the whole workspace without producing artifacts |
-| `task lint-all-crates` | Run Clippy with warnings denied |
-| `task format-all-crates` | Format every source file with `rustfmt` |
+| `task check-all` | Type-check the whole workspace without producing artifacts |
+| `task lint-all` | Run Clippy with warnings denied |
+| `task format-all` | Format every source file with `rustfmt` |
 | `task clean-build-artifacts` | Remove all Cargo build artifacts |
 | `task build-python-bindings` | Build and install the `syon` Python extension in development mode (requires [maturin](https://www.maturin.rs/)) |
 | `task build-ffi-library` | Build the `syon-parser` `cdylib`/`staticlib` in release mode |
