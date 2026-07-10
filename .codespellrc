@@ -1,0 +1,3 @@
+[codespell]
+skip = ./target,./.git,./Cargo.lock,./docs/spec,./site,./LICENSE,./AGPL.license.syon
+ignore-words-list = anc
