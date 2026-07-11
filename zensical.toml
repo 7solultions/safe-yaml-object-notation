@@ -21,13 +21,7 @@ nav = [
       { "Semantics" = "spec/03-semantics.md" },
       { "Glossary schema" = "spec/04-glossary-schema.md" },
     ] },
-  { "Architecture decisions" = [
-      { "0001. Record architecture decisions" = "decisions/0001-record-architecture-decisions.md" },
-      { "0002. pest as the Rust parsing engine" = "decisions/0002-pest-as-the-rust-parsing-engine.md" },
-      { "0003. Preflight scan for forbidden constructs" = "decisions/0003-preflight-scan-for-forbidden-constructs.md" },
-      { "0004. Independent Go implementation" = "decisions/0004-independent-go-implementation.md" },
-      { "0005. Only Block 1 is YAML-compatible" = "decisions/0005-block-1-only-yaml-compatibility.md" },
-    ] },
+  { "Architecture decisions" = "decisions/README.md" },
 ]
 
 [project.theme]
