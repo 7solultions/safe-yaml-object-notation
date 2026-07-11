@@ -13,9 +13,21 @@ pub struct SyonParser;
 // ---------------------------------------------------------------------------
 
 fn preflight(input: &str) -> Result<(), SyonError> {
+    // Literal block bodies (between a `[[[` opener and its `]]]` closer) are
+    // verbatim, uninterpreted content per spec/02-grammar.md — they must not
+    // be scanned for forbidden constructs.
+    let mut in_literal = false;
+
     for (i, line) in input.lines().enumerate() {
         let ln = i + 1;
         let t = line.trim_start();
+
+        if in_literal {
+            if t.trim_end() == "]]]" {
+                in_literal = false;
+            }
+            continue;
+        }
 
         if t == "---" || t.starts_with("--- ") || t.starts_with("---\t") {
             return Err(SyonError::Forbidden(format!(
@@ -33,8 +45,13 @@ fn preflight(input: &str) -> Result<(), SyonError> {
             )));
         }
 
-        // Literal block delimiters `[[[` / `]]]` are not flow collections.
-        if t == "[[[" || t == "]]]" {
+        // A standalone `[[[` opens a literal block; the body (up to `]]]`)
+        // is skipped above, not scanned as flow collection syntax.
+        if t.trim_end() == "[[[" {
+            in_literal = true;
+            continue;
+        }
+        if t.trim_end() == "]]]" {
             continue;
         }
 
@@ -81,7 +98,18 @@ fn preflight(input: &str) -> Result<(), SyonError> {
                     // Only forbidden at value positions
                     let prefix = &t[..i_b];
                     let trimmed = prefix.trim_end();
-                    if trimmed.is_empty() || trimmed.ends_with(':') || trimmed.ends_with('-') {
+                    let at_value_position =
+                        trimmed.is_empty() || trimmed.ends_with(':') || trimmed.ends_with('-');
+
+                    // A same-line literal-block opener, e.g. `key: [[[` or
+                    // `- [[[`, is not a forbidden flow sequence — it opens a
+                    // verbatim body that continues on the following lines.
+                    if bytes[i_b] == b'[' && at_value_position && t[i_b..].trim_end() == "[[[" {
+                        in_literal = true;
+                        break;
+                    }
+
+                    if at_value_position {
                         let ch = bytes[i_b] as char;
                         return Err(SyonError::Forbidden(format!(
                             "line {ln}: flow collection `{ch}` is not allowed in SYON"
@@ -684,6 +712,28 @@ mod tests {
                 assert!(s.contains("line two"), "got: {s:?}");
             }
             other => panic!("expected LiteralBlock, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn inline_literal_block_value_roundtrip() {
+        // `key: [[[` opens a literal block on the same line as the key,
+        // as used by examples/glossary/*.syon — this must not be mistaken
+        // for a forbidden flow-sequence `[`.
+        let input = "description: [[[\n  line one\n  line two\n]]]\n";
+        let doc = parse_document(input).unwrap();
+        match &doc.body {
+            Value::Mapping(entries) => {
+                assert_eq!(entries.len(), 1);
+                match &entries[0].value {
+                    Value::LiteralBlock(s) => {
+                        assert!(s.contains("line one"), "got: {s:?}");
+                        assert!(s.contains("line two"), "got: {s:?}");
+                    }
+                    other => panic!("expected LiteralBlock, got {other:?}"),
+                }
+            }
+            other => panic!("expected Mapping, got {other:?}"),
         }
     }
 

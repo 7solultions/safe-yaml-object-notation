@@ -80,11 +80,17 @@ comment = { indent ~ "#" ~ (SP ~ comment_text | &(NEWLINE | EOI)) ~ (NEWLINE | E
 // ---------------------------------------------------------------------------
 
 literal_open    = _{ "[[[" ~ NEWLINE }
-literal_close   = _{ "]]]" }
-// raw line: anything that is NOT the close delimiter
-literal_raw_line = { (!literal_close ~ not_nl)* ~ NEWLINE }
+// The close delimiter may be indented to match the current nesting level
+// (spec/02-grammar.md: "at the current indent level for nested use").
+literal_close   = _{ " "* ~ "]]]" }
+// raw line: any full line that is not itself a close-delimiter line
+literal_raw_line = { !literal_close ~ not_nl* ~ NEWLINE }
 literal_content  = { literal_raw_line* }
-literal_node    = { literal_open ~ literal_content ~ literal_close ~ (NEWLINE | EOI) }
+// Note: literal_node does NOT consume its own trailing NEWLINE/EOI — callers
+// (the top-level `statement` list, or `mapping_entry`/`sequence_item` via
+// `inline_value`) are responsible for that, since consuming it here would
+// double up with their own trailing NEWLINE/EOI when used as an inline value.
+literal_node    = { literal_open ~ literal_content ~ literal_close }
 
 // ---------------------------------------------------------------------------
 // Document fence (Block 2) — triple-backtick, column 0 only
@@ -139,7 +145,7 @@ statement = _{
   | comment
   | mapping_entry
   | sequence_item
-  | literal_node
+  | (literal_node ~ (NEWLINE | EOI))
   | fence_open
   | fence_close
 }
