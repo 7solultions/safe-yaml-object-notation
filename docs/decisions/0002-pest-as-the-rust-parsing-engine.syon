@@ -1,0 +1,50 @@
+architecture-decision-record:
+  identifier: "0002"
+  title: Use pest as the Rust parsing engine
+  status: accepted
+  date: "2026-07-11"
+  deciders:
+    - felix
+  superseded-by: ""
+  context: [[[
+    syon-parser went through three parsing approaches before settling.
+    First, winnow: a hand-written combinator parser over the lexer's
+    token stream (the initial scaffold). Second, saphyr-parser 0.0.6, a
+    YAML 1.2 event parser, on the theory that SYON's Block 1 is a YAML
+    block-style subset, so an existing YAML event stream could be
+    filtered to reject the forbidden construct set -- this is still the
+    strategy an earlier revision of spec/02-grammar.md described. It
+    required a separate preflight text scan alongside it, because
+    saphyr-parser's event stream doesn't carry block-vs-flow style
+    information: the events for a flow sequence and a hypothetical
+    block-style equivalent look the same, so flow collections couldn't
+    be rejected from the event stream alone. Third, and current: pest, a
+    native PEG grammar (crates/syon-parser/src/grammar.pest) encoding
+    SYON's structure and spacing rule directly, with an
+    indentation-aware builder walking the flat pest output into the
+    typed AST.
+    ]]]
+  decision: [[[
+    Use pest as the parsing engine, with SYON's grammar defined natively
+    in grammar.pest rather than adapting a general-purpose YAML parser.
+    Reusing a YAML parser seemed attractive since Block 1 is a YAML
+    subset, but SYON's spacing rule (: / - / # are structural only when
+    followed by whitespace) and its non-YAML constructs (Block 2 fences,
+    Block 3 literal blocks) don't map onto YAML's event model cleanly. A
+    native PEG grammar can express all three block types and the spacing
+    rule directly, without fighting an external parser's assumptions.
+    ]]]
+  consequences:
+    positive:
+      - The grammar is fully owned and auditable in one file (grammar.pest) rather than depending on a YAML parser's interpretation of flow versus block style.
+    negative:
+      - spec/02-grammar.md's earlier note recommending saphyr-parser described the rejected second approach, not the current implementation, and needed correcting.
+      - The preflight text-scan pattern introduced to work around saphyr-parser's lack of style information was kept after switching to pest rather than folded entirely into the grammar -- see ADR 0003 for the real bug that caused.
+      - syon-go (ADR 0004) is an independent implementation and does not use pest or any parsing library -- it has its own hand-written recursive-descent parser, so this decision only binds the Rust implementation.
+  alternatives-rejected:
+    -
+      name: winnow (hand-written combinator parser)
+      reason: Initial scaffold approach; superseded before the spec's three-block model and spacing rule stabilized.
+    -
+      name: saphyr-parser (YAML 1.2 event parser)
+      reason: Event stream carries no block-vs-flow style information, so flow collections couldn't be rejected without a bolted-on text scan; SYON-only constructs (fences, literal blocks) don't map onto YAML events at all.

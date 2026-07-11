@@ -6,11 +6,10 @@ import (
 	"testing"
 )
 
-// TestExamplesParse parses every .syon file under ../examples to keep the
-// canonical examples valid against this implementation too, alongside the
-// Rust one (see examples-valid in .github/workflows/ci.yml).
-func TestExamplesParse(t *testing.T) {
-	root := filepath.Join("..", "examples")
+// parseAllSyonUnder parses every .syon file found under root, failing the
+// test for any file that doesn't parse.
+func parseAllSyonUnder(t *testing.T, root string) {
+	t.Helper()
 	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -32,4 +31,17 @@ func TestExamplesParse(t *testing.T) {
 	if err != nil {
 		t.Fatalf("walk %s: %v", root, err)
 	}
+}
+
+// TestExamplesParse parses every .syon file under ../examples to keep the
+// canonical examples valid against this implementation too, alongside the
+// Rust one (see examples-valid in .github/workflows/ci.yml).
+func TestExamplesParse(t *testing.T) {
+	parseAllSyonUnder(t, filepath.Join("..", "examples"))
+}
+
+// TestDecisionsParse parses every ADR under ../docs/decisions — the ADR log
+// is itself a corpus of real SYON documents (see docs/decisions/0001-*.syon).
+func TestDecisionsParse(t *testing.T) {
+	parseAllSyonUnder(t, filepath.Join("..", "docs", "decisions"))
 }

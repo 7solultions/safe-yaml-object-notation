@@ -54,7 +54,7 @@ jobs:
       - name: Build syon-cli
         run: cargo build -p syon-cli
 
-      - name: Parse every example .syon file
+      - name: Parse every example and ADR .syon file
         run: |
           set -euo pipefail
           status=0
@@ -65,7 +65,7 @@ jobs:
               status=1
             fi
             echo "::endgroup::"
-          done < <(find examples -name '*.syon' -print0)
+          done < <(find examples docs/decisions -name '*.syon' -print0)
           exit "$status"
 
   go-build:

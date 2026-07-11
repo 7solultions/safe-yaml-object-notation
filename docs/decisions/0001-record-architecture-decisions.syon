@@ -1,0 +1,46 @@
+architecture-decision-record:
+  identifier: "0001"
+  title: Record architecture decisions
+  status: accepted
+  date: "2026-07-11"
+  deciders:
+    - felix
+  superseded-by: ""
+  context: [[[
+    SYON has accumulated several architecturally significant decisions --
+    which parsing engine to use, why forbidden constructs are rejected via
+    a separate text scan rather than the grammar alone, why the Go
+    implementation doesn't just bind to the Rust library, how far YAML
+    compatibility actually goes -- that were never written down anywhere.
+    They existed only as commit messages and code comments, which meant
+    new contributors (human or otherwise) had to reconstruct the
+    reasoning from scratch, or risked re-litigating settled trade-offs.
+    ]]]
+  decision: [[[
+    Record architecturally significant decisions as Architecture Decision
+    Records (ADRs) in docs/decisions/, each one a standalone SYON document
+    following this schema: identifier, title, status, date, deciders,
+    superseded-by, context, decision, consequences (positive/negative),
+    and alternatives-rejected. Writing ADRs as SYON documents rather than
+    prose Markdown means the decision log is itself an example of SYON in
+    real use, and every ADR can be validated by the project's own parsers.
+
+    Once accepted, an ADR is not edited to reflect a later reversal -- a
+    new ADR supersedes it instead (setting its own superseded-by field to
+    point back), so the log reads as a true history rather than the
+    current-best-guess overwritten in place.
+    ]]]
+  consequences:
+    positive:
+      - Decisions and their rationale are discoverable in one place instead of scattered across git history and spec prose.
+      - The ADR log doubles as a real-world SYON corpus, parsed by both the Rust and Go implementations in CI.
+    negative:
+      - Every new architecturally significant decision now requires an ADR going forward -- a discipline, not a one-time backfill.
+      - The log will accumulate decisions that were later superseded; that's intentional, not a maintenance burden to clean up.
+  alternatives-rejected:
+    -
+      name: No formal record (commit messages and tribal knowledge only)
+      reason: Not discoverable, and forces reconstructing rationale from scratch every time.
+    -
+      name: Plain prose Markdown ADRs (Nygard's original format, unmodified)
+      reason: Works, but passes up the chance to dogfood SYON for real project content and get parser validation for free.

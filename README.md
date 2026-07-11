@@ -17,8 +17,10 @@ the full picture.
 
 ```
 crates/
-  syon-parser/   # tokenizer + winnow-based parser, produces an AST
+  syon-parser/   # pest-based parser, produces an AST
   syon-cli/      # `syon` binary — parses a .syon file and prints the AST as JSON
+  syon-python/   # PyO3 bindings exposing syon-parser to Python
+syon-go/         # independent, dependency-free Go implementation
 spec/            # language specification
 ```
 
@@ -26,12 +28,18 @@ spec/            # language specification
 
 ```bash
 task build-parser
-task run-cli-binary -- examples/hello.syon
+task run-cli-binary -- examples/glossary/entries/syon.syon
 ```
 
 ## Spec
 
 See [`spec/README.md`](spec/README.md) for the full language specification.
+
+## Architecture decisions
+
+See [`docs/decisions/`](docs/decisions) for the ADR log — why pest was
+chosen for the Rust parser, why Go got an independent implementation
+instead of FFI bindings, and other architecturally significant calls.
 
 ## Roadmap / TODO
 

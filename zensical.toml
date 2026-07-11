@@ -1,7 +1,7 @@
 [project]
 
 site_name = "SYON"
-site_description = "SYON — Safe YAML Object Notation: a minimal, safe subset of YAML."
+site_description = "SYON — Safe YAML Object Notation: a minimal, YAML-inspired object-notation language."
 site_author = "SYON contributors"
 site_url = "https://object-notation-environment.github.io/safe-yaml-object-notation/"
 copyright = """
@@ -21,6 +21,7 @@ nav = [
       { "Semantics" = "spec/03-semantics.md" },
       { "Glossary schema" = "spec/04-glossary-schema.md" },
     ] },
+  { "Architecture decisions" = "decisions/README.md" },
 ]
 
 [project.theme]
