@@ -20,9 +20,14 @@ scalar      = STRING ;               (* plain or double-quoted *)
 All content is a **string at the parse boundary** — no implicit type coercion
 (see `03-semantics.md`).
 
-The recommended implementation strategy is to use `saphyr-parser` (a YAML 1.2
-event parser) on Block 1 content, filtering the event stream to reject the
-forbidden construct set.
+The reference Rust implementation (`crates/syon-parser`) uses a native PEG
+grammar (pest) encoding this structure and the spacing rule directly, paired
+with a preflight text scan that rejects the forbidden construct set ahead of
+grammar-based parsing — see ADR 0002 and ADR 0003 in `docs/decisions/` for
+why. An earlier revision of this spec recommended filtering a YAML 1.2 event
+stream (e.g. `saphyr-parser`); that approach was tried and abandoned because
+YAML event streams don't carry block-vs-flow style information, among other
+mismatches with SYON's spacing rule.
 
 ### Block 2 — Document fence
 
