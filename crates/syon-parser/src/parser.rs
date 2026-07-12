@@ -819,6 +819,27 @@ mod tests {
         assert!(err.contains("duplicate"), "got: {err}");
     }
 
+    #[test]
+    fn sequence_item_with_embedded_colon_is_not_mistaken_for_a_key() {
+        // A list item's plain-scalar text containing "word: " (e.g. ordinary
+        // prose) must not be misparsed as a mapping_entry -- the leading
+        // "- " would otherwise get swept into a bogus key and hard-reject,
+        // instead of falling back to sequence_item. See grammar.pest's
+        // key_body comment for the mechanism.
+        let input = "- Note: see the appendix for details\n- second item\n";
+        let doc = parse_document(input).unwrap();
+        match &doc.body {
+            Value::Sequence(items) => {
+                assert_eq!(items.len(), 2);
+                match &items[0].value {
+                    Value::Scalar(s) => assert_eq!(s, "Note: see the appendix for details"),
+                    other => panic!("expected Scalar, got {other:?}"),
+                }
+            }
+            other => panic!("expected Sequence, got {other:?}"),
+        }
+    }
+
     // --- Comment attachment ---
 
     #[test]

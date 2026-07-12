@@ -38,8 +38,18 @@ forbidden_flow_open  = { "{" | "[" }
 
 // A key is any sequence of non-newline chars that does not start with
 // an operator symbol and is followed by ": " or ":\n" or ":<EOI>"
-key_char = _{ !(":" ~ (SP | NEWLINE | EOI)) ~ not_nl }
-key_body = { key_char+ }
+//
+// The leading !(":" | "-" | "#") lookahead is load-bearing, not cosmetic:
+// without it, mapping_entry can match a sequence_item's text whenever that
+// text contains an embedded "word: " substring (e.g. a list item reading
+// "- Note: see the appendix"), since key_body would otherwise happily
+// consume the leading "- " as part of the key. Because `statement` tries
+// mapping_entry before sequence_item, that match would win, then get
+// rejected by the "key must not start with an operator" check downstream
+// in parser.rs -- a hard parse failure instead of correctly falling back to
+// sequence_item. Rejecting it here lets pest try sequence_item next.
+key_char  = _{ !(":" ~ (SP | NEWLINE | EOI)) ~ not_nl }
+key_body  = { !(":" | "-" | "#") ~ key_char+ }
 
 // ---------------------------------------------------------------------------
 // Scalars (plain and double-quoted)
