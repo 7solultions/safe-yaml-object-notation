@@ -106,16 +106,19 @@ func TestNoImplicitTyping(t *testing.T) {
 func TestForbiddenAndSyntax(t *testing.T) {
 	cases := []struct {
 		name, src, kind string
+		code            syon.ErrorCode
 	}{
-		{"doc-start", "---\nkey: v\n", "forbidden"},
-		{"anchor", "key: &a value\n", "forbidden"},
-		{"alias", "key: *a\n", "forbidden"},
-		{"tag", "key: !!str x\n", "forbidden"},
-		{"flow-seq", "key: [1, 2]\n", "forbidden"},
-		{"flow-map", "key: {a: b}\n", "forbidden"},
-		{"tab-indent", "key:\n\tnested: v\n", "syntax"},
-		{"dup-key", "a: 1\na: 2\n", "syntax"},
-		{"unterminated-literal", "d: [[[\nhello\n", "syntax"},
+		{"doc-start", "---\nkey: v\n", "forbidden", syon.CodeDocumentStartMarker},
+		{"anchor", "key: &a value\n", "forbidden", syon.CodeAnchor},
+		{"alias", "key: *a\n", "forbidden", syon.CodeAlias},
+		{"tag", "key: !!str x\n", "forbidden", syon.CodeExplicitTag},
+		{"flow-seq", "key: [1, 2]\n", "forbidden", syon.CodeFlowSequence},
+		{"flow-map", "key: {a: b}\n", "forbidden", syon.CodeFlowMapping},
+		{"tab-indent", "key:\n\tnested: v\n", "syntax", syon.CodeTabInIndentation},
+		{"dup-key", "a: 1\na: 2\n", "syntax", syon.CodeDuplicateKey},
+		{"unterminated-literal", "d: [[[\nhello\n", "syntax", syon.CodeUnterminatedLiteralBlock},
+		{"unterminated-fence", "```path.json\nkey: v\n", "syntax", syon.CodeUnterminatedFence},
+		{"malformed-fence-info", "```noformat\nkey: v\n```\n", "syntax", syon.CodeFenceInfoStringMalformed},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -130,6 +133,9 @@ func TestForbiddenAndSyntax(t *testing.T) {
 			}
 			if se.Kind != c.kind {
 				t.Errorf("kind = %q, want %q (%v)", se.Kind, c.kind, se)
+			}
+			if se.Code != c.code {
+				t.Errorf("code = %v, want %v (%v)", se.Code, c.code, se)
 			}
 		})
 	}

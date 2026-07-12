@@ -7,6 +7,7 @@ This directory contains the normative specification for Safe YAML Object Notatio
 | [01-lexer.md](01-lexer.md) | Token types and lexical rules |
 | [02-grammar.md](02-grammar.md) | Formal grammar (EBNF) |
 | [03-semantics.md](03-semantics.md) | Value types, coercion rules, error model |
+| [05-error-codes.md](05-error-codes.md) | Numeric error code table, per-language and per-implementation reachability |
 
 ## Relationship to YAML
 

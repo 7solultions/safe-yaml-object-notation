@@ -3,6 +3,19 @@ use pest_derive::Parser;
 
 use crate::ast::{Document, MappingEntry, SequenceItem, SyonFile, Value};
 use crate::error::SyonError;
+use crate::error_code::ErrorCode;
+
+/// Pick the Block-1 or Block-3 (fence) variant of a forbidden-construct
+/// code, depending on whether the current line is inside a document fence.
+/// See docs/decisions/0006-phase1-block-numbering.syon for why Block 3 is
+/// the fence here, not Block 2.
+fn forbidden_code(in_fence: bool, block1: ErrorCode, fence: ErrorCode) -> ErrorCode {
+    if in_fence {
+        fence
+    } else {
+        block1
+    }
+}
 
 #[derive(Parser)]
 #[grammar = "src/grammar.pest"]
@@ -17,41 +30,82 @@ fn preflight(input: &str) -> Result<(), SyonError> {
     // verbatim, uninterpreted content per spec/02-grammar.md — they must not
     // be scanned for forbidden constructs.
     let mut in_literal = false;
+    // Document fence bodies (between a ```path.format` opener and its ```
+    // closer) are used to attribute forbidden-construct hits to the right
+    // error-code family (see forbidden_code above); see ADR 0006 for why
+    // fence content isn't (yet) exempted from this scan the way literal
+    // blocks are.
+    let mut in_fence = false;
 
     for (i, line) in input.lines().enumerate() {
         let ln = i + 1;
-        let t = line.trim_start();
 
         if in_literal {
-            if t.trim_end() == "]]]" {
+            if line.trim() == "]]]" {
                 in_literal = false;
             }
             continue;
         }
 
+        let t = line.trim_start();
+        let trimmed_end = t.trim_end();
+
+        // Fence open/close tracking, ahead of everything else so a fence's
+        // own delimiter lines aren't tab-checked or forbidden-scanned.
+        if !in_fence && trimmed_end.starts_with("```") && trimmed_end != "```" {
+            let info = &trimmed_end[3..];
+            if !info.contains('.') {
+                return Err(SyonError::Syntax {
+                    code: ErrorCode::FenceInfoStringMalformed,
+                    message: format!("line {ln}: fence info string must be `path.format`"),
+                });
+            }
+            in_fence = true;
+            continue;
+        }
+        if in_fence && trimmed_end == "```" {
+            in_fence = false;
+            continue;
+        }
+
+        // Tabs in indentation are a Block 1 concept; fence/literal bodies
+        // are raw content where indentation is up to the embedded format.
+        if !in_fence {
+            let indent_end = line.find(|c: char| !c.is_whitespace()).unwrap_or(line.len());
+            if line[..indent_end].contains('\t') {
+                return Err(SyonError::Syntax {
+                    code: ErrorCode::TabInIndentation,
+                    message: format!("line {ln}: tab character in indentation prefix"),
+                });
+            }
+        }
+
         if t == "---" || t.starts_with("--- ") || t.starts_with("---\t") {
-            return Err(SyonError::Forbidden(format!(
-                "line {ln}: `---` document-start marker is not allowed in SYON"
-            )));
+            return Err(SyonError::Forbidden {
+                code: forbidden_code(in_fence, ErrorCode::DocumentStartMarker, ErrorCode::FenceDocumentStartMarker),
+                message: format!("line {ln}: `---` document-start marker is not allowed in SYON"),
+            });
         }
         if t == "..." || t.starts_with("... ") {
-            return Err(SyonError::Forbidden(format!(
-                "line {ln}: `...` document-end marker is not allowed in SYON"
-            )));
+            return Err(SyonError::Forbidden {
+                code: forbidden_code(in_fence, ErrorCode::DocumentEndMarker, ErrorCode::FenceDocumentEndMarker),
+                message: format!("line {ln}: `...` document-end marker is not allowed in SYON"),
+            });
         }
         if t == "?" || t.starts_with("? ") {
-            return Err(SyonError::Forbidden(format!(
-                "line {ln}: complex key `?` is not allowed in SYON"
-            )));
+            return Err(SyonError::Forbidden {
+                code: forbidden_code(in_fence, ErrorCode::ComplexKey, ErrorCode::FenceComplexKey),
+                message: format!("line {ln}: complex key `?` is not allowed in SYON"),
+            });
         }
 
         // A standalone `[[[` opens a literal block; the body (up to `]]]`)
         // is skipped above, not scanned as flow collection syntax.
-        if t.trim_end() == "[[[" {
+        if trimmed_end == "[[[" {
             in_literal = true;
             continue;
         }
-        if t.trim_end() == "]]]" {
+        if trimmed_end == "]]]" {
             continue;
         }
 
@@ -70,16 +124,18 @@ fn preflight(input: &str) -> Result<(), SyonError> {
                 b'\\' if in_dq => esc = true,
                 b'"' => in_dq = !in_dq,
                 b'!' if !in_dq => {
-                    return Err(SyonError::Forbidden(format!(
-                        "line {ln}: tag `!` / `!!` is not allowed in SYON"
-                    )));
+                    return Err(SyonError::Forbidden {
+                        code: forbidden_code(in_fence, ErrorCode::ExplicitTag, ErrorCode::FenceExplicitTag),
+                        message: format!("line {ln}: tag `!` / `!!` is not allowed in SYON"),
+                    });
                 }
                 b'&' if !in_dq => {
                     // Only forbidden when followed by alphanumeric (anchor syntax)
                     if bytes.get(i_b + 1).map(|b| b.is_ascii_alphanumeric()).unwrap_or(false) {
-                        return Err(SyonError::Forbidden(format!(
-                            "line {ln}: anchor `&name` is not allowed in SYON"
-                        )));
+                        return Err(SyonError::Forbidden {
+                            code: forbidden_code(in_fence, ErrorCode::Anchor, ErrorCode::FenceAnchor),
+                            message: format!("line {ln}: anchor `&name` is not allowed in SYON"),
+                        });
                     }
                 }
                 b'*' if !in_dq => {
@@ -88,9 +144,10 @@ fn preflight(input: &str) -> Result<(), SyonError> {
                         let prefix = &t[..i_b];
                         let trimmed = prefix.trim_end();
                         if trimmed.ends_with(':') || trimmed.ends_with('-') || trimmed.is_empty() {
-                            return Err(SyonError::Forbidden(format!(
-                                "line {ln}: alias `*name` is not allowed in SYON"
-                            )));
+                            return Err(SyonError::Forbidden {
+                                code: forbidden_code(in_fence, ErrorCode::Alias, ErrorCode::FenceAlias),
+                                message: format!("line {ln}: alias `*name` is not allowed in SYON"),
+                            });
                         }
                     }
                 }
@@ -111,15 +168,34 @@ fn preflight(input: &str) -> Result<(), SyonError> {
 
                     if at_value_position {
                         let ch = bytes[i_b] as char;
-                        return Err(SyonError::Forbidden(format!(
-                            "line {ln}: flow collection `{ch}` is not allowed in SYON"
-                        )));
+                        let code = if ch == '{' {
+                            forbidden_code(in_fence, ErrorCode::FlowMapping, ErrorCode::FenceFlowMapping)
+                        } else {
+                            forbidden_code(in_fence, ErrorCode::FlowSequence, ErrorCode::FenceFlowSequence)
+                        };
+                        return Err(SyonError::Forbidden {
+                            code,
+                            message: format!("line {ln}: flow collection `{ch}` is not allowed in SYON"),
+                        });
                     }
                 }
                 _ => {}
             }
             i_b += 1;
         }
+    }
+
+    if in_literal {
+        return Err(SyonError::Syntax {
+            code: ErrorCode::UnterminatedLiteralBlock,
+            message: "unterminated [[[ literal block".to_string(),
+        });
+    }
+    if in_fence {
+        return Err(SyonError::Syntax {
+            code: ErrorCode::UnterminatedFence,
+            message: "unterminated ``` document fence".to_string(),
+        });
     }
     Ok(())
 }
@@ -149,8 +225,9 @@ enum LineValue {
 // ---------------------------------------------------------------------------
 
 fn collect_lines(input: &str) -> Result<Vec<Line>, SyonError> {
-    let pairs = SyonParser::parse(Rule::document, input).map_err(|e| {
-        SyonError::Syntax(format!("{e}"))
+    let pairs = SyonParser::parse(Rule::document, input).map_err(|e| SyonError::Syntax {
+        code: ErrorCode::MalformedStructure,
+        message: format!("{e}"),
     })?;
 
     let mut lines = Vec::new();
@@ -191,9 +268,10 @@ fn collect_lines(input: &str) -> Result<Vec<Line>, SyonError> {
                 // Validate key doesn't start with operator symbols
                 let k = key.trim_start();
                 if k.starts_with(':') || k.starts_with('-') || k.starts_with('#') {
-                    return Err(SyonError::Syntax(format!(
-                        "key {:?} must not start with an operator symbol", key
-                    )));
+                    return Err(SyonError::Syntax {
+                        code: ErrorCode::KeyStartsWithOperator,
+                        message: format!("key {:?} must not start with an operator symbol", key),
+                    });
                 }
                 lines.push(Line::KeyValue { indent, key, value, trailing });
             }
@@ -455,7 +533,10 @@ impl<'a> Builder<'a> {
 
                 // Duplicate key check
                 if entries.iter().any(|e| e.key == key) {
-                    return Err(SyonError::Syntax(format!("duplicate key {:?}", key)));
+                    return Err(SyonError::Syntax {
+                        code: ErrorCode::DuplicateKey,
+                        message: format!("duplicate key {:?}", key),
+                    });
                 }
 
                 entries.push(MappingEntry {
@@ -617,6 +698,60 @@ pub fn parse_document(input: &str) -> Result<crate::ast::Document, SyonError> {
 mod tests {
     use super::*;
     use crate::ast::Value;
+
+    // --- Error codes ---
+
+    #[test]
+    fn error_codes_for_forbidden_constructs() {
+        assert_eq!(parse("a: &anc val\nb: *anc\n").unwrap_err().code(), ErrorCode::Anchor);
+        assert_eq!(parse("a: *anc val\n").unwrap_err().code(), ErrorCode::Alias);
+        assert_eq!(parse("a: !tag val\n").unwrap_err().code(), ErrorCode::ExplicitTag);
+        assert_eq!(parse("a: {b: c}\n").unwrap_err().code(), ErrorCode::FlowMapping);
+        assert_eq!(parse("a: [1, 2]\n").unwrap_err().code(), ErrorCode::FlowSequence);
+        assert_eq!(parse("? complex\n").unwrap_err().code(), ErrorCode::ComplexKey);
+        assert_eq!(parse("---\n").unwrap_err().code(), ErrorCode::DocumentStartMarker);
+        assert_eq!(parse("...\n").unwrap_err().code(), ErrorCode::DocumentEndMarker);
+    }
+
+    #[test]
+    fn error_codes_for_block1_key_issues() {
+        assert_eq!(parse("a: 1\na: 2\n").unwrap_err().code(), ErrorCode::DuplicateKey);
+    }
+
+    #[test]
+    fn error_code_for_tab_in_indentation() {
+        let err = parse("key:\n\t- item\n").unwrap_err();
+        assert_eq!(err.code(), ErrorCode::TabInIndentation);
+    }
+
+    #[test]
+    fn error_code_for_unterminated_literal_block() {
+        let err = parse("desc: [[[\nunterminated\n").unwrap_err();
+        assert_eq!(err.code(), ErrorCode::UnterminatedLiteralBlock);
+    }
+
+    #[test]
+    fn error_code_for_unterminated_fence() {
+        // Regression: this used to silently succeed (fence_open/fence_close
+        // were unpaired at the grammar level) -- now correctly rejected.
+        let err = parse("```path.json\nkey: value\n").unwrap_err();
+        assert_eq!(err.code(), ErrorCode::UnterminatedFence);
+    }
+
+    #[test]
+    fn error_code_for_malformed_fence_info_string() {
+        let err = parse("```noformatseparator\nkey: value\n```\n").unwrap_err();
+        assert_eq!(err.code(), ErrorCode::FenceInfoStringMalformed);
+    }
+
+    #[test]
+    fn forbidden_construct_inside_fence_gets_fence_code() {
+        // See docs/decisions/0006-*.syon: fence content isn't yet exempted
+        // from forbidden-construct scanning, so this is currently reachable
+        // -- but it should be attributed to the fence (3xx), not Block 1.
+        let err = parse("```path.json\na: &anc val\nb: *anc\n```\n").unwrap_err();
+        assert_eq!(err.code(), ErrorCode::FenceAnchor);
+    }
 
     // --- Spacing rule: colon ---
 
