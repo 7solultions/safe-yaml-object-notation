@@ -7,5 +7,8 @@ name = "syon"
 version = "0.1.0"
 requires-python = ">=3.8"
 
+[project.optional-dependencies]
+test = ["pytest>=7", "behave>=1.2.6"]
+
 [tool.maturin]
 manifest-path = "Cargo.toml"
