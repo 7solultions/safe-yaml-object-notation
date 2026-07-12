@@ -26,6 +26,7 @@ phase1.report.syon
 **/__pycache__/
 **/.pytest_cache/
 crates/syon-python/*.egg-info/
+crates/syon-python/.venv/
 
 # RustRover
 #  JetBrains specific template is maintained in a separate JetBrains.gitignore that can

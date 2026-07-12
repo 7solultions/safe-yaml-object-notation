@@ -126,6 +126,15 @@ jobs:
         with:
           python-version: "3.x"
 
+      - name: Create virtualenv
+        # `maturin develop` refuses to run outside a virtualenv/conda env,
+        # and actions/setup-python installs Python system-wide, not into
+        # one. $GITHUB_PATH/$GITHUB_ENV persist across the job's later steps.
+        run: |
+          python -m venv .venv
+          echo "$(pwd)/.venv/bin" >> "$GITHUB_PATH"
+          echo "VIRTUAL_ENV=$(pwd)/.venv" >> "$GITHUB_ENV"
+
       - name: Install maturin and test dependencies
         # NOT `pip install ".[test]"` -- that also asks pip to build+install
         # the local `syon` package itself via a generic PEP 517 wheel build,
