@@ -66,6 +66,32 @@ def test_duplicate_keys_raise_value_error():
         syon.parse("a: 1\na: 2\n")
 
 
+def test_syon_error_carries_code_and_message():
+    with pytest.raises(syon.SyonError) as exc_info:
+        syon.parse("a: &anc val\nb: *anc\n")
+    err = exc_info.value
+    assert isinstance(err, ValueError)
+    assert err.code == syon.ErrorCode.ANCHOR
+    assert int(err.code) == 112
+    assert "anchor" in err.message
+    assert str(err) == "[SYON-112] " + err.message
+
+
+def test_syon_error_codes_for_forbidden_constructs():
+    cases = {
+        "a: [1, 2]\n": syon.ErrorCode.FLOW_SEQUENCE,
+        "a: {b: c}\n": syon.ErrorCode.FLOW_MAPPING,
+        "a: !tag val\n": syon.ErrorCode.EXPLICIT_TAG,
+        "a: *anc\n": syon.ErrorCode.ALIAS,
+        "a: 1\na: 2\n": syon.ErrorCode.DUPLICATE_KEY,
+        "---\n": syon.ErrorCode.DOCUMENT_START_MARKER,
+    }
+    for src, expected_code in cases.items():
+        with pytest.raises(syon.SyonError) as exc_info:
+            syon.parse(src)
+        assert exc_info.value.code == expected_code, src
+
+
 def _corpus_files():
     files = list((REPO_ROOT / "examples").rglob("*.syon"))
     files += list((REPO_ROOT / "docs" / "decisions").glob("*.syon"))
