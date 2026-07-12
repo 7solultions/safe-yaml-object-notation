@@ -1,0 +1,44 @@
+architecture-decision-record:
+  identifier: "0006"
+  title: Phase1 report uses its own block numbering, distinct from the grammar spec
+  status: accepted
+  date: "2026-07-11"
+  deciders:
+    - felix
+  superseded-by: ""
+  context: [[[
+    The phase1 analyzer (crates/syon-parser/src/phase1.rs, syon-go/phase1.go,
+    the syon phase1 and go run ./cmd/phase1 subcommands) evaluates a
+    document's use of each SYON block type, reporting a complexity score and
+    a YAML 1.2 compatibility estimate. When this was specified, its block
+    numbering was given as block1 equals records, block2 equals literal
+    blocks, block3 equals document fences -- the OPPOSITE of
+    spec/02-grammar.md's established numbering, where Block 2 is the
+    document fence and Block 3 is the literal escape hatch. Every existing
+    ADR (0002, 0003, 0005) and grammar.pest use the spec's numbering.
+
+    This was confirmed deliberate, not a slip, when asked directly.
+    ]]]
+  decision: [[[
+    Keep the phase1 tool's block2 equals literal-blocks, block3 equals
+    fences numbering, distinct from spec/02-grammar.md's block2 equals
+    fence, block3 equals literal numbering. Document the divergence
+    prominently everywhere it could cause confusion: a terminology-note
+    comment at the top of phase1.rs and phase1.go, and this ADR, so a
+    reader of one numbering scheme is pointed at the other rather than
+    silently misreading a report or a grammar rule.
+    ]]]
+  consequences:
+    positive:
+      - The phase1 tool's field names (block2, block3) match the numbering its author actually wants for evaluation purposes, without forcing a rename.
+      - Writing this very ADR's negative-consequences prose surfaced and got a real grammar bug fixed, with a regression test, in the same change: a sequence item whose plain-scalar text contains an embedded word-colon-space substring (ordinary prose, like this bullet almost was) was misparsed as a bogus mapping key and hard-rejected, instead of falling back to being read as a plain list item. Fixed by requiring key_body's first character not be a colon, dash, or hash directly in grammar.pest, rather than only checking that after the fact in parser.rs.
+    negative:
+      - Two different, contradictory block-numbering conventions now coexist in the same codebase: spec/02-grammar.md uses block2 for fence and block3 for literal, while phase1 uses the opposite. A reader moving between an ADR and a phase1.report.syon file must track which convention applies where.
+      - Building and testing the phase1 analyzer surfaced two further real findings, left unfixed here since they are substantially larger than a numbering decision. First: syon-parser's preflight scan does not exempt document-fence content from forbidden-construct scanning the way it now exempts literal-block content (fixed in PR #6) -- a fence body containing real embedded JSON with braces or brackets is rejected, even though spec/03-semantics.md states fence content is returned as a raw string and not parsed. Document.body is even typed as a parsed Value, not a raw string, a type-level mismatch with that claim. Second: syon-go's Node does not retain comments in its AST (documented as future work in its own README), so the Go phase1 analyzer always reports zero comments, while the Rust analyzer counts them -- a concrete instance of the cross-implementation drift risk ADR 0004 already flagged.
+  alternatives-rejected:
+    -
+      name: Rename phase1's fields to match spec/02-grammar.md's numbering
+      reason: Rejected when asked directly -- the phase1 tool's numbering was confirmed as intentional, not a mistake to correct.
+    -
+      name: Fix the fence/preflight gap and the Go comment-tracking gap as part of this same change
+      reason: Both are real, but substantially larger than a numbering decision -- the fence gap needs fence content captured as raw text end to end (grammar, AST type, and Document.body's type), and the Go gap needs AST changes tracked as its own follow-up, not bundled here.

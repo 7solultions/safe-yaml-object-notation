@@ -17,6 +17,7 @@ CI (see `examples-valid` and `go-build` in
 | [0003](https://github.com/object-notation-environment/safe-yaml-object-notation/blob/main/docs/decisions/0003-preflight-scan-for-forbidden-constructs.syon) | Preflight text scan for forbidden constructs | Accepted |
 | [0004](https://github.com/object-notation-environment/safe-yaml-object-notation/blob/main/docs/decisions/0004-independent-go-implementation.syon) | Independent Go implementation instead of FFI bindings | Accepted |
 | [0005](https://github.com/object-notation-environment/safe-yaml-object-notation/blob/main/docs/decisions/0005-block-1-only-yaml-compatibility.syon) | Only Block 1 is YAML-compatible | Accepted |
+| [0006](https://github.com/object-notation-environment/safe-yaml-object-notation/blob/main/docs/decisions/0006-phase1-block-numbering.syon) | Phase1 report uses its own block numbering, distinct from the grammar spec | Accepted |
 
 ## Record schema
 
@@ -25,7 +26,7 @@ mapping:
 
 ```syon
 architecture-decision-record:
-  identifier: "0006"
+  identifier: "0007"
   title: Example decision title
   status: accepted
   date: "2026-07-11"
