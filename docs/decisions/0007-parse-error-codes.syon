@@ -1,0 +1,86 @@
+architecture-decision-record:
+  identifier: "0007"
+  title: Numeric error codes for parse errors, mirrored per language
+  status: accepted
+  date: "2026-07-12"
+  deciders:
+    - felix
+  superseded-by: ""
+  context: [[[
+    SyonError (Rust) and syon.Error (Go) carried only a Forbidden/Syntax
+    kind plus a human-readable message. There was no stable, programmatic
+    way to ask "is this specifically a duplicate-key error?" without
+    string-matching the message, which is fragile across wording changes
+    and impossible to keep in sync across three independently-implemented
+    parsers (see docs/decisions/0004-independent-go-implementation.syon).
+
+    A three-digit numeric code was requested, banded by block: 1-99 for
+    general/pre-block errors, 101-199 for Block 1 (records), 201-299 for
+    Block 2, 301-399 for Block 3, with similar problems in different
+    blocks sharing the same low two digits (e.g. 112, 212, 312 all mean
+    "anchor used where forbidden," in a record, a literal block, and a
+    fence body respectively).
+
+    Confirmed directly: this table reuses the phase1 tool's block
+    numbering (Block 2 equals literal blocks, Block 3 equals document
+    fences), the same numbering already adopted by
+    docs/decisions/0006-phase1-block-numbering.syon and for the same
+    reason -- so a phase1.report.syon and a parse error agree with each
+    other, at the cost of disagreeing with spec/02-grammar.md's opposite
+    numbering.
+
+    Writing the Rust preflight scan test coverage for these codes
+    surfaced a real, previously-undiscovered bug: an unterminated
+    ` ``` ` document fence (opened but never closed) was silently
+    accepted by the Rust parser, which absorbed everything after the
+    open fence as its body with no error. Go already rejected this
+    correctly. Confirmed directly to fix this now rather than only
+    document it.
+    ]]]
+  decision: [[[
+    Add a code: ErrorCode field to every parse error in all three
+    implementations:
+
+    - Rust: syon_parser::ErrorCode, a fieldless enum with explicit u16
+      discriminants matching the table in spec/05-error-codes.md;
+      SyonError::code() -> ErrorCode. SyonError's variants were changed
+      from tuple structs carrying only a message to struct variants
+      carrying { code, message }, since a single free-text message could
+      no longer imply the code.
+    - Go: syon.ErrorCode, an int-based named-constant type (syon.CodeAnchor,
+      etc.) with the same numeric values; syon.Error gained a Code field.
+    - Python: since PyO3 0.21 does not bridge a Rust enum into Python
+      automatically, a hand-written mirror, syon.ErrorCode (a #[pyclass]
+      fieldless enum), reusing the exact numeric discriminants and
+      exposing Python-idiomatic UPPER_CASE member names via a
+      #[pyo3(name = "...")] attribute per variant (PyO3 0.21 otherwise
+      exposes the bare Rust identifier, e.g. Anchor, not ANCHOR). Parse
+      errors are raised as syon.SyonError, a pyclass extending
+      PyValueError so existing `except ValueError` callers keep working,
+      carrying .code (a syon.ErrorCode) and .message (str), with __str__
+      rendering `[SYON-{code}] {message}`.
+
+    Fixed the unterminated-fence bug found while implementing this: the
+    Rust preflight scan now tracks fence-open/fence-close state across
+    lines the same way it already tracked in_literal for [[[ blocks, and
+    raises UnterminatedFence if a fence is still open at end of input.
+    ]]]
+  consequences:
+    positive:
+      - Callers in all three languages can dispatch on a stable numeric code instead of matching message text, e.g. `if err.code() == ErrorCode::DuplicateKey`.
+      - phase1.report.syon and a raised parse error now use the same block-numbering convention, rather than requiring a reader to hold two different numbering schemes in mind depending on which output they are looking at.
+      - The unterminated-fence silent-acceptance bug is fixed with regression tests in both Rust and Go, closing a real gap where a truncated or malformed document could be silently misparsed as valid.
+    negative:
+      - Three more error-code tables (Rust enum, Go constants, Python pyclass) must now be kept in sync by hand alongside the three existing parser implementations -- another instance of the cross-implementation drift risk flagged by ADR 0004, concretely realized here as codes 311-318 (forbidden construct inside fence content) being reachable in Rust but not Go, since Rust's preflight scan does not exempt fence bodies from the same forbidden-construct scan applied to records, while Go treats fence content as opaque. This contradicts spec/03-semantics.md's claim that fence content is returned as a raw string and never parsed, and is left open as a tracked, documented gap rather than fixed here, per the same reasoning ADR 0006 gave for not fixing it: closing it needs fence content captured as raw text end to end (grammar, AST type, and Document.body's type), which is substantially larger than adding error codes.
+      - SyonError's Rust variants changed shape (tuple to struct-with-fields), a breaking API change for any external caller pattern-matching on SyonError directly; no such caller exists in this repository today (ffi.rs only calls .to_string()).
+      - Codes 211-218 (forbidden construct inside a literal block) and, in Go, 311-318 as well, are permanently reserved and unreachable given each implementation's current architecture -- they exist in the table for numbering symmetry with 111-118/311-318, not because they can ever be raised.
+  alternatives-rejected:
+    -
+      name: Follow spec/02-grammar.md's block numbering instead of phase1's
+      reason: Rejected when asked directly -- error codes are meant to agree with phase1.report.syon's numbering, which was itself already confirmed intentional in ADR 0006, not with the grammar spec's opposite convention.
+    -
+      name: Auto-generate the Go and Python error-code tables from the Rust enum instead of hand-mirroring them
+      reason: Would remove the sync-by-hand risk, but no code-generation tooling exists in this project yet (see ADR 0004's rejection of a similar idea for the Go parser itself); worth reconsidering if the tables drift in practice.
+    -
+      name: Leave the unterminated-fence bug undocumented for a later change
+      reason: Rejected when asked directly -- fixing it now, alongside adding the FenceInfoStringMalformed/UnterminatedFence codes that made it easy to notice and test, was preferred over letting a known silent-acceptance bug persist.
