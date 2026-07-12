@@ -127,7 +127,10 @@ jobs:
           python-version: "3.x"
 
       - name: Install maturin and test dependencies
-        run: pip install maturin ".[test]"
+        # NOT `pip install ".[test]"` -- that also asks pip to build+install
+        # the local `syon` package itself via a generic PEP 517 wheel build,
+        # redundant with (and less reliable than) `maturin develop` below.
+        run: pip install maturin pytest behave
 
       - name: Build and install the syon extension (maturin develop)
         run: maturin develop

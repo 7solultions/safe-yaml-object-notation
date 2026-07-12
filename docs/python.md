@@ -58,12 +58,18 @@ Two test suites live in `crates/syon-python/`, both requiring the extension
 to be built first:
 
 ```bash
+pip install maturin pytest behave   # NOT `pip install ".[test]"` -- see below
 task build-python-bindings
-pip install "crates/syon-python[test]"
 
 task test-python       # pytest: crates/syon-python/tests/
 task test-python-bdd   # behave: crates/syon-python/features/
 ```
+
+Install `pytest`/`behave` directly by name rather than via
+`pip install "crates/syon-python[test]"` — the latter's `.[test]` syntax
+also asks pip to build and install the local `syon` package itself through
+a generic PEP 517 wheel build, which is redundant with (and less reliable
+than) `maturin develop`/`task build-python-bindings` doing that properly.
 
 `tests/test_parse.py` is a plain [pytest](https://pytest.org) suite covering
 parsing, the strings-only boundary, forbidden-construct errors, and every

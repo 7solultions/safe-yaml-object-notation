@@ -57,13 +57,13 @@ tasks:
       - maturin develop -m crates/syon-python/Cargo.toml
 
   test-python:
-    desc: Run pytest for the syon Python extension (requires build-python-bindings and `pip install .[test]`)
+    desc: Run pytest for the syon Python extension (requires build-python-bindings and `pip install pytest behave`)
     dir: crates/syon-python
     cmds:
       - pytest
 
   test-python-bdd:
-    desc: Run the behave BDD suite for the syon Python extension (requires build-python-bindings and `pip install .[test]`)
+    desc: Run the behave BDD suite for the syon Python extension (requires build-python-bindings and `pip install pytest behave`)
     dir: crates/syon-python
     cmds:
       - behave
