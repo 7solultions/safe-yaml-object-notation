@@ -158,6 +158,44 @@ func TestValuesWithColonsAndDashes(t *testing.T) {
 	}
 }
 
+func TestOnlyFirstColonSpaceOnALineIsStructural(t *testing.T) {
+	// Only the FIRST `: ` on a line separates key from value; every later
+	// colon, even a `: `-shaped one, is ordinary value text.
+	var v map[string]any
+	src := "key: value: with colon: multiple times\n"
+	if err := syon.Unmarshal([]byte(src), &v); err != nil {
+		t.Fatal(err)
+	}
+	want := "value: with colon: multiple times"
+	if v["key"] != want {
+		t.Errorf("key = %q, want %q", v["key"], want)
+	}
+}
+
+func TestDashIsStructuralOnlyAsFirstNonSpaceCharOfTheLine(t *testing.T) {
+	// A `-` later in the line -- even followed by a space, even preceded by
+	// a space -- is NOT a sequence-item marker unless it is the first
+	// non-space character on the line.
+	var v map[string]any
+	if err := syon.Unmarshal([]byte("note: this - is not a list item\n"), &v); err != nil {
+		t.Fatal(err)
+	}
+	want := "this - is not a list item"
+	if v["note"] != want {
+		t.Errorf("note = %q, want %q", v["note"], want)
+	}
+
+	// A `-` inside a key (not preceded by whitespace at all) is also just
+	// ordinary key text.
+	v = nil
+	if err := syon.Unmarshal([]byte("a-b: value\n"), &v); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := v["a-b"]; !ok {
+		t.Errorf("expected key %q, got %v", "a-b", v)
+	}
+}
+
 func TestGenericInterface(t *testing.T) {
 	var v any
 	if err := syon.Unmarshal([]byte("a: 1\nb:\n  - x\n  - y\n"), &v); err != nil {

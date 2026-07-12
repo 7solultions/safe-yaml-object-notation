@@ -645,6 +645,23 @@ mod tests {
         }
     }
 
+    #[test]
+    fn only_first_colon_space_on_a_line_is_structural() {
+        // Only the FIRST `: ` on a line separates key from value; every
+        // later colon, even a `: `-shaped one, is ordinary value text.
+        let doc = parse_document("key: value: with colon: multiple times\n").unwrap();
+        match &doc.body {
+            Value::Mapping(entries) => {
+                assert_eq!(entries[0].key, "key");
+                assert_eq!(
+                    entries[0].value,
+                    Value::Scalar("value: with colon: multiple times".into())
+                );
+            }
+            other => panic!("expected Mapping, got {other:?}"),
+        }
+    }
+
     // --- Spacing rule: dash ---
 
     #[test]
@@ -667,6 +684,33 @@ mod tests {
         match &doc.body {
             Value::Mapping(entries) => {
                 assert_eq!(entries[0].value, Value::Scalar("-draft".into()));
+            }
+            other => panic!("expected Mapping, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn dash_is_structural_only_as_first_non_space_char_of_the_line() {
+        // A `-` later in the line -- even followed by a space, even preceded
+        // by a space -- is NOT a sequence-item marker unless it is the
+        // first non-space character on the line.
+        let doc = parse_document("note: this - is not a list item\n").unwrap();
+        match &doc.body {
+            Value::Mapping(entries) => {
+                assert_eq!(
+                    entries[0].value,
+                    Value::Scalar("this - is not a list item".into())
+                );
+            }
+            other => panic!("expected Mapping, got {other:?}"),
+        }
+
+        // A `-` inside a key (not preceded by whitespace at all) is also
+        // just ordinary key text.
+        let doc = parse_document("a-b: value\n").unwrap();
+        match &doc.body {
+            Value::Mapping(entries) => {
+                assert_eq!(entries[0].key, "a-b");
             }
             other => panic!("expected Mapping, got {other:?}"),
         }
@@ -817,6 +861,27 @@ mod tests {
     fn reject_duplicate_keys() {
         let err = parse_document("a: 1\na: 2\n").unwrap_err().to_string();
         assert!(err.contains("duplicate"), "got: {err}");
+    }
+
+    #[test]
+    fn sequence_item_with_embedded_colon_is_not_mistaken_for_a_key() {
+        // A list item's plain-scalar text containing "word: " (e.g. ordinary
+        // prose) must not be misparsed as a mapping_entry -- the leading
+        // "- " would otherwise get swept into a bogus key and hard-reject,
+        // instead of falling back to sequence_item. See grammar.pest's
+        // key_body comment for the mechanism.
+        let input = "- Note: see the appendix for details\n- second item\n";
+        let doc = parse_document(input).unwrap();
+        match &doc.body {
+            Value::Sequence(items) => {
+                assert_eq!(items.len(), 2);
+                match &items[0].value {
+                    Value::Scalar(s) => assert_eq!(s, "Note: see the appendix for details"),
+                    other => panic!("expected Scalar, got {other:?}"),
+                }
+            }
+            other => panic!("expected Sequence, got {other:?}"),
+        }
     }
 
     // --- Comment attachment ---

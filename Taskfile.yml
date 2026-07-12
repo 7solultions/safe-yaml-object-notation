@@ -83,3 +83,14 @@ tasks:
     deps: [docs-sync-spec]
     cmds:
       - zensical serve
+
+  phase1-report:
+    desc: Evaluate Block 1/2/3 usage, complexity, and YAML compatibility (Rust); writes phase1.report.syon
+    cmds:
+      - cargo run -q -p syon-cli -- phase1 {{.CLI_ARGS}}
+
+  phase1-report-go:
+    desc: Same as phase1-report, using the Go implementation; writes syon-go/phase1.report.syon
+    dir: syon-go
+    cmds:
+      - go run ./cmd/phase1 {{.CLI_ARGS}}
