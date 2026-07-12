@@ -58,19 +58,25 @@ func (n *Node) setKey(key string, v *Node) {
 }
 
 // Error is a fatal parse error carrying a 1-based position. Kind distinguishes
-// safety rejections ("forbidden") from malformed input ("syntax").
+// safety rejections ("forbidden") from malformed input ("syntax"). Code is a
+// stable numeric identifier -- see ErrorCode.
 type Error struct {
 	Line, Col int
 	Kind      string // "forbidden" | "syntax"
+	Code      ErrorCode
 	Msg       string
 }
 
 func (e *Error) Error() string {
-	return fmt.Sprintf("syon: %s error at line %d:%d: %s", e.Kind, e.Line, e.Col, e.Msg)
+	return fmt.Sprintf("syon: [%s] %s error at line %d:%d: %s", e.Code, e.Kind, e.Line, e.Col, e.Msg)
 }
 
-func forbidden(line, col int, msg string) *Error { return &Error{line, col, "forbidden", msg} }
-func syntax(line, col int, msg string) *Error    { return &Error{line, col, "syntax", msg} }
+func forbidden(line, col int, code ErrorCode, msg string) *Error {
+	return &Error{line, col, "forbidden", code, msg}
+}
+func syntax(line, col int, code ErrorCode, msg string) *Error {
+	return &Error{line, col, "syntax", code, msg}
+}
 
 // Parse parses SYON source into a Node tree (the top level is usually a mapping).
 func Parse(data []byte) (*Node, error) {
@@ -87,7 +93,7 @@ func Parse(data []byte) (*Node, error) {
 	p.skipTrivia()
 	if p.pos < len(p.lines) {
 		ind, ct := p.cur()
-		return nil, syntax(p.pos+1, ind+1, fmt.Sprintf("unexpected content %q", ct))
+		return nil, syntax(p.pos+1, ind+1, CodeUnexpectedTrailingContent, fmt.Sprintf("unexpected content %q", ct))
 	}
 	return node, nil
 }
@@ -134,7 +140,7 @@ func (p *parser) skipTrivia() error {
 	for p.pos < len(p.lines) {
 		line := p.lines[p.pos]
 		if hasTabIndent(line) {
-			return syntax(p.pos+1, 1, "tab in indentation")
+			return syntax(p.pos+1, 1, CodeTabInIndentation, "tab in indentation")
 		}
 		_, ct := lineParts(line)
 		if isBlank(ct) || isComment(ct) {
@@ -171,7 +177,7 @@ func (p *parser) parseBlock(minIndent int) (*Node, error) {
 		return nil, nil
 	}
 	if ct == "---" || strings.HasPrefix(ct, "--- ") {
-		return nil, forbidden(p.pos+1, ind+1, "'---' document markers are not allowed in SYON")
+		return nil, forbidden(p.pos+1, ind+1, CodeDocumentStartMarker, "'---' document markers are not allowed in SYON")
 	}
 	switch {
 	case isSeqItem(ct):
@@ -213,7 +219,7 @@ func (p *parser) parseMapping(ind int) (*Node, error) {
 			return nil, err
 		}
 		if _, dup := m.Map[key]; dup {
-			return nil, syntax(lineNo, ci+1, fmt.Sprintf("duplicate key %q", key))
+			return nil, syntax(lineNo, ci+1, CodeDuplicateKey, fmt.Sprintf("duplicate key %q", key))
 		}
 		rest := strings.TrimLeft(ct[colon+1:], " ")
 		p.pos++
@@ -299,7 +305,7 @@ func (p *parser) parseLiteral(_ int) (*Node, error) {
 		raw = append(raw, p.lines[p.pos])
 		p.pos++
 	}
-	return nil, syntax(start, 1, "unterminated [[[ literal block")
+	return nil, syntax(start, 1, CodeUnterminatedLiteralBlock, "unterminated [[[ literal block")
 }
 
 func (p *parser) parseFence() (*Node, error) {
@@ -307,7 +313,7 @@ func (p *parser) parseFence() (*Node, error) {
 	info := strings.TrimSuffix(open[3:], " ")
 	dot := strings.LastIndex(info, ".")
 	if dot < 0 {
-		return nil, syntax(p.pos+1, 4, "fence info string must be `path.format`")
+		return nil, syntax(p.pos+1, 4, CodeFenceInfoStringMalformed, "fence info string must be `path.format`")
 	}
 	n := &Node{Kind: FenceNode, Path: info[:dot], Format: info[dot+1:], Line: p.pos + 1}
 	start := p.pos
@@ -323,7 +329,7 @@ func (p *parser) parseFence() (*Node, error) {
 		raw = append(raw, p.lines[p.pos])
 		p.pos++
 	}
-	return nil, syntax(start+1, 1, "unterminated ``` document fence")
+	return nil, syntax(start+1, 1, CodeUnterminatedFence, "unterminated ``` document fence")
 }
 
 // scalar builds a ScalarNode from inline value text. A double-quoted string is
@@ -343,7 +349,7 @@ func (p *parser) scalar(text string, line, col int) (*Node, error) {
 			}
 		}
 		if end < 0 {
-			return nil, syntax(line, col, "unterminated quoted string")
+			return nil, syntax(line, col, CodeUnterminatedQuotedString, "unterminated quoted string")
 		}
 		// Content after the closing quote (spaces / a trailing comment) is ignored.
 		return &Node{Kind: ScalarNode, Str: unquote(text[:end+1]), Line: line}, nil
@@ -359,19 +365,19 @@ func (p *parser) scalar(text string, line, col int) (*Node, error) {
 
 func checkKey(key string, line, col int) error {
 	if key == "" {
-		return syntax(line, col, "empty key")
+		return syntax(line, col, CodeEmptyKey, "empty key")
 	}
 	switch key[0] {
 	case ':', '-', '#':
-		return syntax(line, col, fmt.Sprintf("key may not begin with %q", key[0]))
+		return syntax(line, col, CodeKeyStartsWithOperator, fmt.Sprintf("key may not begin with %q", key[0]))
 	case '!':
-		return forbidden(line, col, "tags (!x / !!x) are not allowed in SYON")
+		return forbidden(line, col, CodeExplicitTag, "tags (!x / !!x) are not allowed in SYON")
 	case '&':
-		return forbidden(line, col, "anchors (&x) are not allowed in SYON")
+		return forbidden(line, col, CodeAnchor, "anchors (&x) are not allowed in SYON")
 	case '*':
-		return forbidden(line, col, "aliases (*x) are not allowed in SYON")
+		return forbidden(line, col, CodeAlias, "aliases (*x) are not allowed in SYON")
 	case '?':
-		return forbidden(line, col, "complex keys (?) are not allowed in SYON")
+		return forbidden(line, col, CodeComplexKey, "complex keys (?) are not allowed in SYON")
 	}
 	return nil
 }
@@ -382,17 +388,17 @@ func checkForbiddenValue(v string, line, col int) error {
 	}
 	switch v[0] {
 	case '{':
-		return forbidden(line, col, "flow mappings ({…}) are not allowed in SYON")
+		return forbidden(line, col, CodeFlowMapping, "flow mappings ({…}) are not allowed in SYON")
 	case '[':
 		if !strings.HasPrefix(v, "[[[") { // [[[ is a literal block, allowed
-			return forbidden(line, col, "flow sequences ([…]) are not allowed in SYON")
+			return forbidden(line, col, CodeFlowSequence, "flow sequences ([…]) are not allowed in SYON")
 		}
 	case '!':
-		return forbidden(line, col, "tags (!x / !!x) are not allowed in SYON")
+		return forbidden(line, col, CodeExplicitTag, "tags (!x / !!x) are not allowed in SYON")
 	case '&':
-		return forbidden(line, col, "anchors (&x) are not allowed in SYON")
+		return forbidden(line, col, CodeAnchor, "anchors (&x) are not allowed in SYON")
 	case '*':
-		return forbidden(line, col, "aliases (*x) are not allowed in SYON")
+		return forbidden(line, col, CodeAlias, "aliases (*x) are not allowed in SYON")
 	}
 	return nil
 }
