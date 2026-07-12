@@ -124,7 +124,10 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.x"
+          # Pinned, not "3.x": pyo3 0.21 (crates/syon-python/Cargo.toml)
+          # doesn't support Python newer than 3.12, but "3.x" floats to
+          # whatever CPython the runner ships (3.14 as of this fix).
+          python-version: "3.12"
 
       - name: Create virtualenv
         # `maturin develop` refuses to run outside a virtualenv/conda env,
