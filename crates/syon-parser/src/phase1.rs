@@ -19,9 +19,9 @@ pub struct Phase1Counts {
     pub sequence_items: u64,
     /// Structural `# ` usages -- leading + trailing comments.
     pub comments: u64,
-    /// Count of `[[[ ... ]]]` literal blocks (this module's "block2").
+    /// Count of `| ... ` literal blocks (this module's "block2").
     pub literal_blocks: u64,
-    /// Count of ` ```path.format ` document fences (this module's "block3").
+    /// Count of ` ---path.format ` document fences (this module's "block3").
     pub fences: u64,
     /// Deepest nesting level reached (0 = top-level scalar/empty document).
     pub max_nesting_depth: u64,
@@ -72,8 +72,8 @@ impl Phase1Counts {
             Value::Mapping(entries) => {
                 for entry in entries {
                     self.mapping_entries += 1;
-                    self.comments +=
-                        entry.leading_comments.len() as u64 + entry.trailing_comment.is_some() as u64;
+                    self.comments += entry.leading_comments.len() as u64
+                        + entry.trailing_comment.is_some() as u64;
                     self.tally_inline(&entry.key);
                     self.add_value(&entry.value, depth + 1);
                 }
@@ -115,7 +115,7 @@ impl Phase1Counts {
     /// Whether this content uses only Block 1 constructs (and is therefore a
     /// strict YAML 1.2 subset -- see `docs/decisions/0005-*`).
     pub fn yaml_compatible(&self) -> bool {
-        self.literal_blocks == 0 && self.fences == 0
+        self.fences == 0
     }
 
     /// Share of YAML-compatible (Block 1) constructs among all Block
