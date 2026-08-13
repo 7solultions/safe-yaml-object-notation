@@ -63,12 +63,29 @@ pub struct ParseOptions {
     /// continuation lines are content, and are routinely aligned to columns
     /// that suit the reader.
     pub space_count: usize,
+    /// Read `- key: value` as a compact mapping rather than as scalar text.
+    ///
+    /// YAML reads that line as a one-entry mapping, and Taskfiles rely on it
+    /// (`- task: build`). But ordinary prose has the same shape -- `- Note:
+    /// see the appendix` is a sentence, not a mapping -- so interpreting it
+    /// is a choice about the document's dialect, and the safe default is to
+    /// leave the text alone.
+    ///
+    /// While this is off, a sequence item that has *both* inline text and a
+    /// deeper block is an error rather than silently losing one of them.
+    pub allow_key_in_line_after_list: bool,
 }
 
 impl Default for ParseOptions {
     /// Interpret nothing: flow collections arrive as text.
     fn default() -> Self {
-        Self { strict: true, allow_list: false, allow_dictionary: false, space_count: 2 }
+        Self {
+            strict: true,
+            allow_list: false,
+            allow_dictionary: false,
+            space_count: 2,
+            allow_key_in_line_after_list: false,
+        }
     }
 }
 
@@ -218,6 +235,44 @@ fn depth_of(indent: usize, opts: &ParseOptions) -> Result<usize, SyonError> {
             opts.space_count
         )))
     }
+}
+
+/// Split `key: value` out of a sequence item's inline scalar.
+///
+/// `- task: build` is a compact block mapping: one entry, written on the same
+/// line as the dash. The grammar is line-oriented and hands the whole line
+/// over as a scalar, so the entry is recovered here.
+///
+/// The split happens at the first `:` that is followed by a space or ends the
+/// line, and that is not inside quotes -- the same spacing rule the grammar
+/// applies. `- echo done: ok` therefore becomes a mapping, exactly as YAML
+/// reads it; a command that must stay a command quotes the colon.
+fn split_compact_entry(text: &str) -> Option<(String, String)> {
+    let (mut in_sq, mut in_dq, mut esc) = (false, false, false);
+
+    for (i, ch) in text.char_indices() {
+        if esc {
+            esc = false;
+            continue;
+        }
+        match ch {
+            '\\' if in_dq => esc = true,
+            '"' if !in_sq => in_dq = !in_dq,
+            '\'' if !in_dq => in_sq = !in_sq,
+            ':' if !in_sq && !in_dq => {
+                let rest = &text[i + 1..];
+                if rest.is_empty() || rest.starts_with(' ') {
+                    let key = text[..i].trim();
+                    if key.is_empty() || key.starts_with([':', '-', '#']) {
+                        return None;
+                    }
+                    return Some((key.to_string(), rest.trim().to_string()));
+                }
+            }
+            _ => {}
+        }
+    }
+    None
 }
 
 /// Prefix an error with the source line it came from.
@@ -472,6 +527,11 @@ fn extract_scalar(pair: Pair<Rule>) -> String {
                 // Strip surrounding quotes and unescape
                 return unescape_dq(&s[1..s.len() - 1]);
             }
+            Rule::sq_scalar => {
+                let s = inner.as_str();
+                // Single quotes are literal throughout; `''` is one quote.
+                return s[1..s.len() - 1].replace("''", "'");
+            }
             Rule::plain_scalar => {
                 return inner.as_str().trim_end().to_owned();
             }
@@ -534,6 +594,7 @@ fn extract_comment_text(pair: Pair<Rule>) -> String {
 // ---------------------------------------------------------------------------
 
 struct Builder<'a> {
+    opts: ParseOptions,
     lines: &'a [Line],
     /// Source line of each entry in `lines`, 1-based.
     line_nos: &'a [usize],
@@ -545,8 +606,13 @@ struct Builder<'a> {
 }
 
 impl<'a> Builder<'a> {
-    fn new(lines: &'a [Line], line_nos: &'a [usize], src: &'a [&'a str]) -> Self {
-        Self { lines, line_nos, src, pos: 0 }
+    fn new(
+        opts: ParseOptions,
+        lines: &'a [Line],
+        line_nos: &'a [usize],
+        src: &'a [&'a str],
+    ) -> Self {
+        Self { opts, lines, line_nos, src, pos: 0 }
     }
 
     fn peek_indent(&self) -> Option<usize> {
@@ -843,6 +909,42 @@ impl<'a> Builder<'a> {
                 };
 
                 let value = match (inline_val, child_value) {
+                    // `- key: value`, optionally followed by more entries on
+                    // deeper lines, is one compact mapping. Both halves are
+                    // kept: dropping the inline half loses `task:` from
+                    // `- task: build` / `  vars: ...` with no error at all.
+                    (Some(Value::Scalar(ref sc)), child)
+                        if self.opts.allow_key_in_line_after_list
+                            && split_compact_entry(sc).is_some() =>
+                    {
+                        let (key, val) = split_compact_entry(sc).unwrap();
+                        let mut entries = vec![MappingEntry {
+                            key,
+                            value: Value::Scalar(val),
+                            leading_comments: Vec::new(),
+                            trailing_comment: None,
+                        }];
+                        match child {
+                            Some(Value::Mapping(rest)) => entries.extend(rest),
+                            Some(_) => {
+                                return Err(SyonError::Syntax(
+                                    "a sequence item mixes `key: value` with a non-mapping block"
+                                        .into(),
+                                ))
+                            }
+                            None => {}
+                        }
+                        Value::Mapping(entries)
+                    }
+                    // Both halves present but not merged: say so, rather than
+                    // dropping one of them silently.
+                    (Some(Value::Scalar(sc)), Some(_)) if !sc.trim().is_empty() => {
+                        return Err(SyonError::Syntax(format!(
+                            "sequence item has both inline text {sc:?} and an indented \
+                             block; enable `allow_key_in_line_after_list` to read it as \
+                             a compact mapping"
+                        )))
+                    }
                     (_, Some(child)) => child,
                     (Some(iv), None) => iv,
                     (None, None) => Value::Scalar(String::new()),
@@ -915,7 +1017,7 @@ pub fn parse_with(input: &str, opts: ParseOptions) -> Result<SyonFile, SyonError
 
     let (lines, line_nos) = collect_lines(input, &opts)?;
     let src: Vec<&str> = input.lines().collect();
-    let mut builder = Builder::new(&lines, &line_nos, &src);
+    let mut builder = Builder::new(opts, &lines, &line_nos, &src);
     let mut documents: Vec<Document> = Vec::new();
 
     while builder.pos < builder.lines.len() {
@@ -1384,5 +1486,74 @@ mod tests {
     fn multi_space_before_a_trailing_comment() {
         // Writers align comments into a column.
         assert_eq!(scalar_of("a: \"x\"   # note\n", "a"), "x");
+    }
+
+    #[test]
+    fn compact_mapping_in_a_sequence_needs_the_option() {
+        let opts = ParseOptions { allow_key_in_line_after_list: true, ..Default::default() };
+
+        // Off (default): the line is prose, and stays text.
+        let doc = parse_document("deps:\n  - task: build\n").unwrap();
+        let Value::Mapping(e) = doc.body else { panic!() };
+        let Value::Sequence(items) = &e[0].value else { panic!() };
+        assert_eq!(items[0].value, Value::Scalar("task: build".into()));
+
+        // On: the same line is a one-entry mapping.
+        let f = parse_with("deps:\n  - task: build\n", opts).unwrap();
+        let Value::Mapping(e) = f.documents[0].body.clone() else { panic!() };
+        let Value::Sequence(items) = &e[0].value else { panic!() };
+        let Value::Mapping(entry) = &items[0].value else { panic!("expected a mapping") };
+        assert_eq!(entry[0].key, "task");
+        assert_eq!(entry[0].value, Value::Scalar("build".into()));
+    }
+
+    #[test]
+    fn compact_mapping_merges_with_its_deeper_entries() {
+        // Regression: the inline half used to be dropped outright, so
+        // `task:` vanished from a parameterised dependency with no error.
+        let opts = ParseOptions { allow_key_in_line_after_list: true, ..Default::default() };
+        let f = parse_with("deps:\n  - task: build\n    vars:\n      A: 1\n", opts).unwrap();
+        let Value::Mapping(e) = f.documents[0].body.clone() else { panic!() };
+        let Value::Sequence(items) = &e[0].value else { panic!() };
+        let Value::Mapping(entry) = &items[0].value else { panic!("expected a mapping") };
+        let keys: Vec<&str> = entry.iter().map(|m| m.key.as_str()).collect();
+        assert_eq!(keys, ["task", "vars"], "the inline entry must survive");
+    }
+
+    #[test]
+    fn inline_text_plus_a_block_is_an_error_while_the_option_is_off() {
+        let err = parse("deps:\n  - task: build\n    vars:\n      A: 1\n")
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("allow_key_in_line_after_list"), "got: {err}");
+    }
+
+    #[test]
+    fn only_the_first_colon_space_splits_a_compact_entry() {
+        let opts = ParseOptions { allow_key_in_line_after_list: true, ..Default::default() };
+        let f = parse_with("cmds:\n  - task: core:info\n", opts).unwrap();
+        let Value::Mapping(e) = f.documents[0].body.clone() else { panic!() };
+        let Value::Sequence(items) = &e[0].value else { panic!() };
+        let Value::Mapping(entry) = &items[0].value else { panic!() };
+        assert_eq!(entry[0].value, Value::Scalar("core:info".into()));
+    }
+
+    #[test]
+    fn a_quoted_colon_does_not_split_a_compact_entry() {
+        let opts = ParseOptions { allow_key_in_line_after_list: true, ..Default::default() };
+        let f = parse_with("cmds:\n  - echo \"a: b\"\n", opts).unwrap();
+        let Value::Mapping(e) = f.documents[0].body.clone() else { panic!() };
+        let Value::Sequence(items) = &e[0].value else { panic!() };
+        assert_eq!(items[0].value, Value::Scalar("echo \"a: b\"".into()));
+    }
+
+    #[test]
+    fn single_quoted_scalars_are_unwrapped() {
+        // `'...'` is literal throughout, and `''` is one apostrophe.
+        let doc = parse_document("a: '3'\nb: 'it''s here'\nc: '{{ .X }}'\n").unwrap();
+        let Value::Mapping(e) = doc.body else { panic!() };
+        assert_eq!(e[0].value, Value::Scalar("3".into()));
+        assert_eq!(e[1].value, Value::Scalar("it's here".into()));
+        assert_eq!(e[2].value, Value::Scalar("{{ .X }}".into()));
     }
 }

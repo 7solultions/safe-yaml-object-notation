@@ -59,6 +59,11 @@ dq_escape    = _{ "\\" ~ ANY }
 dq_inner     = _{ dq_escape | (!("\"" | NEWLINE) ~ ANY) }
 dq_scalar    = ${ "\"" ~ dq_inner* ~ "\"" }
 
+// Single-quoted scalar. YAML's rule: everything is literal, and a doubled
+// `''` is one apostrophe. No backslash escapes.
+sq_inner     = _{ "''" | (!("'" | NEWLINE) ~ ANY) }
+sq_scalar    = ${ "'" ~ sq_inner* ~ "'" }
+
 // Plain scalar: everything up to an optional inline comment or newline.
 // The spacing rule means `#` is only structural when preceded by a space.
 plain_char   = _{
@@ -68,7 +73,7 @@ plain_char   = _{
 }
 plain_scalar = ${ plain_char+ }
 
-scalar_value = { dq_scalar | plain_scalar }
+scalar_value = { dq_scalar | sq_scalar | plain_scalar }
 
 // ---------------------------------------------------------------------------
 // Inline comment  (trailing on the same line as a key/value)

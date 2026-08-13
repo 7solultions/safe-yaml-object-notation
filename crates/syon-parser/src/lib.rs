@@ -6,5 +6,5 @@ pub mod phase1;
 
 pub use ast::{Document, MappingEntry, SequenceItem, SyonFile, Value};
 pub use error::SyonError;
-pub use parser::{parse, parse_document};
+pub use parser::{parse, parse_document, parse_with, ParseOptions};
 pub use phase1::Phase1Counts;
