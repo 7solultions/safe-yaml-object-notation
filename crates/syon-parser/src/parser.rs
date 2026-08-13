@@ -12,11 +12,97 @@ pub struct SyonParser;
 // Forbidden-construct pre-flight scan
 // ---------------------------------------------------------------------------
 
+/// Whether the parser may interpret flow collections, rather than leaving
+/// them as text.
+///
+/// Flow collections are never *rejected*. `[a, b]` and `{k: v}` are always
+/// accepted; the only question is whether this layer turns them into a
+/// sequence or mapping, or hands them onward as the scalar `"[a, b]"` for the
+/// consumer to interpret. Declining to interpret is the default, and is what
+/// "safe" means in SYON: the generic parser does not decide what application
+/// syntax means.
+///
+/// Anchors, aliases and tags are a separate matter and are always rejected.
+/// They are the parser's own reference and typing machinery, so honouring
+/// them *is* interpretation, and no option enables it.
+///
+/// [`strict`](Self::strict) is the master switch: while it is set nothing is
+/// interpreted, whatever the individual flags say. Enabling interpretation
+/// therefore takes two deliberate steps.
+///
+/// ```
+/// use syon_parser::parser::ParseOptions;
+///
+/// // Default: `[a, b]` arrives as the string "[a, b]".
+/// let safe = ParseOptions::default();
+///
+/// // Opt in to sequences only; `{k: v}` still arrives as text.
+/// let lists = ParseOptions::lists_only();
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ParseOptions {
+    /// Master switch. While true nothing is interpreted and both `allow_*`
+    /// flags have no effect.
+    pub strict: bool,
+    /// Interpret `[a, b]` as a sequence. Requires `strict: false`.
+    pub allow_list: bool,
+    /// Interpret `{k: v}` as a mapping. Requires `strict: false`.
+    ///
+    /// Worth leaving off: a flow mapping is the more opaque of the two, and
+    /// it is far rarer in practice.
+    pub allow_dictionary: bool,
+    /// Spaces per indentation level.
+    ///
+    /// Structural lines -- mapping entries and sequence items -- must be
+    /// indented by a whole multiple of this, which makes nesting depth a
+    /// property the tokeniser can compute (`indent / space_count`) rather
+    /// than something only the tree builder can infer. Ragged indentation
+    /// becomes an error instead of a surprising tree.
+    ///
+    /// Verbatim regions are exempt: the body of a `|` block and folded
+    /// continuation lines are content, and are routinely aligned to columns
+    /// that suit the reader.
+    pub space_count: usize,
+}
+
+impl Default for ParseOptions {
+    /// Interpret nothing: flow collections arrive as text.
+    fn default() -> Self {
+        Self { strict: true, allow_list: false, allow_dictionary: false, space_count: 2 }
+    }
+}
+
+impl ParseOptions {
+    /// Interpret flow sequences, but not flow mappings.
+    pub fn lists_only() -> Self {
+        Self { strict: false, allow_list: true, allow_dictionary: false, ..Self::default() }
+    }
+
+    /// Interpret both flow forms.
+    pub fn permissive() -> Self {
+        Self { strict: false, allow_list: true, allow_dictionary: true, ..Self::default() }
+    }
+
+    /// Whether a flow collection opened by `opener` should be interpreted.
+    #[allow(dead_code)]
+    fn interprets_flow(&self, opener: char) -> bool {
+        if self.strict {
+            return false;
+        }
+        match opener {
+            '[' => self.allow_list,
+            '{' => self.allow_dictionary,
+            _ => false,
+        }
+    }
+}
+
 fn preflight(input: &str) -> Result<(), SyonError> {
     // Literal block bodies (between a `[[[` opener and its `]]]` closer) are
     // verbatim, uninterpreted content per spec/02-grammar.md — they must not
     // be scanned for forbidden constructs.
     let mut in_literal = false;
+    let mut seen_content = false;
 
     for (i, line) in input.lines().enumerate() {
         let ln = i + 1;
@@ -29,10 +115,19 @@ fn preflight(input: &str) -> Result<(), SyonError> {
             continue;
         }
 
+        // A single leading `---` is harmless: it opens the one document this
+        // file contains. What SYON forbids is a multi-document stream, so
+        // only a marker after content has begun is an error.
         if t == "---" || t.starts_with("--- ") || t.starts_with("---\t") {
-            return Err(SyonError::Forbidden(format!(
-                "line {ln}: `---` document-start marker is not allowed in SYON"
-            )));
+            if seen_content {
+                return Err(SyonError::Forbidden(format!(
+                    "line {ln}: `---` starts a second document; SYON files hold exactly one"
+                )));
+            }
+            continue;
+        }
+        if !t.is_empty() && !t.starts_with('#') {
+            seen_content = true;
         }
         if t == "..." || t.starts_with("... ") {
             return Err(SyonError::Forbidden(format!(
@@ -55,73 +150,82 @@ fn preflight(input: &str) -> Result<(), SyonError> {
             continue;
         }
 
-        // Scan for forbidden inline constructs outside double-quoted strings.
-        let bytes = t.as_bytes();
-        let mut in_dq = false;
-        let mut esc = false;
-        let mut i_b = 0usize;
-        while i_b < bytes.len() {
-            if esc {
-                esc = false;
-                i_b += 1;
-                continue;
-            }
-            match bytes[i_b] {
-                b'\\' if in_dq => esc = true,
-                b'"' => in_dq = !in_dq,
-                b'!' if !in_dq => {
-                    return Err(SyonError::Forbidden(format!(
-                        "line {ln}: tag `!` / `!!` is not allowed in SYON"
-                    )));
-                }
-                b'&' if !in_dq => {
-                    // Only forbidden when followed by alphanumeric (anchor syntax)
-                    if bytes.get(i_b + 1).map(|b| b.is_ascii_alphanumeric()).unwrap_or(false) {
-                        return Err(SyonError::Forbidden(format!(
-                            "line {ln}: anchor `&name` is not allowed in SYON"
-                        )));
-                    }
-                }
-                b'*' if !in_dq => {
-                    if bytes.get(i_b + 1).map(|b| b.is_ascii_alphanumeric()).unwrap_or(false) {
-                        // Only forbidden at value position (after `: ` or `- `)
-                        let prefix = &t[..i_b];
-                        let trimmed = prefix.trim_end();
-                        if trimmed.ends_with(':') || trimmed.ends_with('-') || trimmed.is_empty() {
-                            return Err(SyonError::Forbidden(format!(
-                                "line {ln}: alias `*name` is not allowed in SYON"
-                            )));
-                        }
-                    }
-                }
-                b'{' | b'[' if !in_dq => {
-                    // Only forbidden at value positions
-                    let prefix = &t[..i_b];
-                    let trimmed = prefix.trim_end();
-                    let at_value_position =
-                        trimmed.is_empty() || trimmed.ends_with(':') || trimmed.ends_with('-');
-
-                    // A same-line literal-block opener, e.g. `key: [[[` or
-                    // `- [[[`, is not a forbidden flow sequence — it opens a
-                    // verbatim body that continues on the following lines.
-                    if bytes[i_b] == b'[' && at_value_position && t[i_b..].trim_end() == "[[[" {
-                        in_literal = true;
-                        break;
-                    }
-
-                    if at_value_position {
-                        let ch = bytes[i_b] as char;
-                        return Err(SyonError::Forbidden(format!(
-                            "line {ln}: flow collection `{ch}` is not allowed in SYON"
-                        )));
-                    }
-                }
-                _ => {}
-            }
-            i_b += 1;
-        }
+        // Indicator characters are NOT scanned here.
+        //
+        // `&`, `*`, `!` and the flow openers are YAML indicators only at the
+        // start of a node. Inside scalar content they are ordinary bytes --
+        // `2>&1`, `Hello, World!` and `echo a && echo b` contain no anchor,
+        // no tag and no flow collection. Whether a byte sits inside scalar
+        // content is decided by parsing, so a pre-parse scan cannot answer
+        // the question at all; it can only guess, and it guessed wrong on
+        // every shell redirect.
+        //
+        // These constructs are rejected in `check_node_start` instead, which
+        // runs once the grammar has established where each node begins.
     }
     Ok(())
+}
+
+/// Reject SYON's forbidden constructs at a position where they are genuinely
+/// indicators: the start of a node's value.
+///
+/// `text` is a scalar exactly as written, with the `: ` or `- ` operator and
+/// surrounding space already stripped.
+fn check_node_start(text: &str) -> Result<(), SyonError> {
+    let t = text.trim_start();
+    let mut cs = t.chars();
+    let (Some(first), second) = (cs.next(), cs.next()) else { return Ok(()) };
+
+    let named = second.is_some_and(|c| c.is_alphanumeric() || c == '_');
+    match first {
+        '&' if named => Err(SyonError::Forbidden(
+            "anchor `&name` is not allowed in SYON".into(),
+        )),
+        '*' if named => Err(SyonError::Forbidden(
+            "alias `*name` is not allowed in SYON".into(),
+        )),
+        '!' if named || second == Some('!') => Err(SyonError::Forbidden(
+            "tag `!` / `!!` is not allowed in SYON".into(),
+        )),
+        // `[` and `{` are deliberately absent.
+        //
+        // They are neither interpreted nor rejected here: the text is carried
+        // through as an ordinary scalar and handed to the consumer, which
+        // decides what it means. That is what "safe" denotes in SYON -- the
+        // generic parser declines to interpret, rather than refusing the
+        // input. `[a, b]` reaches the application as the string "[a, b]",
+        // and `{{ .TASK }}` as the string "{{ .TASK }}".
+        //
+        // Anchors, aliases and tags above are different in kind: they are
+        // reference and typing machinery *of the parser itself*, so passing
+        // them through would mean interpreting them. They stay rejected.
+        _ => Ok(()),
+    }
+}
+
+/// Check a structural line's indentation and return its nesting depth.
+fn depth_of(indent: usize, opts: &ParseOptions) -> Result<usize, SyonError> {
+    // A step of 0 disables the check, for callers that want ragged input.
+    let Some(depth) = indent.checked_div(opts.space_count) else {
+        return Ok(indent);
+    };
+    if indent.is_multiple_of(opts.space_count) {
+        Ok(depth)
+    } else {
+        Err(SyonError::Syntax(format!(
+            "indented {indent} spaces, which is not a multiple of {} -- \
+             SYON uses a fixed indentation step",
+            opts.space_count
+        )))
+    }
+}
+
+/// Prefix an error with the source line it came from.
+fn at_line(e: SyonError, line: usize) -> SyonError {
+    match e {
+        SyonError::Forbidden(m) => SyonError::Forbidden(format!("line {line}: {m}")),
+        SyonError::Syntax(m) => SyonError::Syntax(format!("line {line}: {m}")),
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -136,28 +240,68 @@ enum Line {
     LiteralBlock { indent: usize, content: String },
     FenceOpen { path: String, format: String },
     FenceClose,
+    /// A line matching no structural rule. Valid only as the body of a block
+    /// scalar; anywhere else the Builder reports it as a syntax error.
+    Raw { indent: usize, text: String, line: usize },
 }
 
 #[derive(Debug)]
 enum LineValue {
     Scalar(String),
     Literal(String),
+    /// A `|` (or `>`) header. The content is the following more-indented
+    /// lines, which the Builder gathers.
+    BlockHeader(Chomp),
+}
+
+/// Trailing-newline handling for a block scalar, from the `-` / `+` suffix.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Chomp {
+    /// `|` -- one trailing newline.
+    Clip,
+    /// `|-` -- no trailing newline.
+    Strip,
+    /// `|+` -- keep every trailing newline.
+    Keep,
+}
+
+/// Recognise a block scalar header.
+///
+/// SYON has no folded style: `>` is accepted as a spelling of `|` so that
+/// YAML written for other tools keeps its meaning, rather than silently
+/// folding newlines into spaces.
+fn block_header(text: &str) -> Option<Chomp> {
+    let t = text.trim_end();
+    let rest = t.strip_prefix('|').or_else(|| t.strip_prefix('>'))?;
+    match rest {
+        "" => Some(Chomp::Clip),
+        "-" => Some(Chomp::Strip),
+        "+" => Some(Chomp::Keep),
+        _ => None,
+    }
 }
 
 // ---------------------------------------------------------------------------
 // Turn the flat pest output into Line structs
 // ---------------------------------------------------------------------------
 
-fn collect_lines(input: &str) -> Result<Vec<Line>, SyonError> {
+fn collect_lines(
+    input: &str,
+    opts: &ParseOptions,
+) -> Result<(Vec<Line>, Vec<usize>), SyonError> {
     let pairs = SyonParser::parse(Rule::document, input).map_err(|e| {
         SyonError::Syntax(format!("{e}"))
     })?;
 
     let mut lines = Vec::new();
+    // Source line of each entry in `lines`, so a block scalar can be taken
+    // verbatim from the original text rather than from tokens.
+    let mut line_nos: Vec<usize> = Vec::new();
 
     for pair in pairs.into_iter().next().unwrap().into_inner() {
         match pair.as_rule() {
             Rule::comment => {
+                let line_no = pair.line_col().0;
                 let mut indent = 0usize;
                 let mut text = String::new();
                 for inner in pair.into_inner() {
@@ -168,9 +312,11 @@ fn collect_lines(input: &str) -> Result<Vec<Line>, SyonError> {
                     }
                 }
                 lines.push(Line::Comment { indent, text });
+                line_nos.push(line_no);
             }
 
             Rule::mapping_entry => {
+                let line_no = pair.line_col().0;
                 let mut indent = 0usize;
                 let mut key = String::new();
                 let mut value: Option<LineValue> = None;
@@ -180,7 +326,18 @@ fn collect_lines(input: &str) -> Result<Vec<Line>, SyonError> {
                         Rule::indent => indent = inner.as_str().len(),
                         Rule::key_body => key = inner.as_str().to_owned(),
                         Rule::inline_value => {
-                            value = Some(parse_inline_value(inner));
+                            // Check the source as written. A quoted scalar is
+                            // content by construction -- `"{{.TASK}}"` is a
+                            // string, not a flow mapping -- and the quotes are
+                            // gone by the time the value is extracted.
+                            let quoted =
+                                inner.as_str().trim_start().starts_with(['"', '\'']);
+                            let v = parse_inline_value(inner);
+                            if let (false, LineValue::Scalar(text)) = (quoted, &v) {
+                                check_node_start(text)
+                                    .map_err(|e| at_line(e, line_no))?;
+                            }
+                            value = Some(v);
                         }
                         Rule::trailing_comment => {
                             trailing = Some(extract_comment_text(inner));
@@ -195,10 +352,16 @@ fn collect_lines(input: &str) -> Result<Vec<Line>, SyonError> {
                         "key {:?} must not start with an operator symbol", key
                     )));
                 }
+                // A key also sits at node start, so `{a: b}` at line start
+                // is a flow mapping rather than a key named `{a`.
+                check_node_start(&key).map_err(|e| at_line(e, line_no))?;
+                depth_of(indent, opts).map_err(|e| at_line(e, line_no))?;
                 lines.push(Line::KeyValue { indent, key, value, trailing });
+                line_nos.push(line_no);
             }
 
             Rule::sequence_item => {
+                let line_no = pair.line_col().0;
                 let mut indent = 0usize;
                 let mut value: Option<LineValue> = None;
                 let mut trailing: Option<String> = None;
@@ -206,7 +369,18 @@ fn collect_lines(input: &str) -> Result<Vec<Line>, SyonError> {
                     match inner.as_rule() {
                         Rule::indent => indent = inner.as_str().len(),
                         Rule::inline_value => {
-                            value = Some(parse_inline_value(inner));
+                            // Check the source as written. A quoted scalar is
+                            // content by construction -- `"{{.TASK}}"` is a
+                            // string, not a flow mapping -- and the quotes are
+                            // gone by the time the value is extracted.
+                            let quoted =
+                                inner.as_str().trim_start().starts_with(['"', '\'']);
+                            let v = parse_inline_value(inner);
+                            if let (false, LineValue::Scalar(text)) = (quoted, &v) {
+                                check_node_start(text)
+                                    .map_err(|e| at_line(e, line_no))?;
+                            }
+                            value = Some(v);
                         }
                         Rule::trailing_comment => {
                             trailing = Some(extract_comment_text(inner));
@@ -214,16 +388,21 @@ fn collect_lines(input: &str) -> Result<Vec<Line>, SyonError> {
                         _ => {}
                     }
                 }
+                depth_of(indent, opts).map_err(|e| at_line(e, line_no))?;
                 lines.push(Line::ListItem { indent, value, trailing });
+                line_nos.push(line_no);
             }
 
             Rule::literal_node => {
+                let line_no = pair.line_col().0;
                 // literal_block at top level (indent 0)
                 let content = extract_literal_content(pair);
                 lines.push(Line::LiteralBlock { indent: 0, content });
+                line_nos.push(line_no);
             }
 
             Rule::fence_open => {
+                let line_no = pair.line_col().0;
                 let mut path = String::new();
                 let mut format = String::new();
                 for inner in pair.into_inner() {
@@ -234,10 +413,28 @@ fn collect_lines(input: &str) -> Result<Vec<Line>, SyonError> {
                     }
                 }
                 lines.push(Line::FenceOpen { path, format });
+                line_nos.push(line_no);
             }
 
             Rule::fence_close => {
+                let line_no = pair.line_col().0;
                 lines.push(Line::FenceClose);
+                line_nos.push(line_no);
+            }
+
+            Rule::raw_line => {
+                let line = pair.line_col().0;
+                let line_no = line;
+                // The document marker is structure, not content. `preflight`
+                // has already rejected a second one, so this opens the single
+                // document and carries nothing to build.
+                if pair.as_str().trim() == "---" {
+                    continue;
+                }
+                let text = pair.as_str().trim_end_matches(['\n', '\r']).to_owned();
+                let indent = text.len() - text.trim_start().len();
+                lines.push(Line::Raw { indent, text, line });
+                line_nos.push(line_no);
             }
 
             Rule::EOI => {}
@@ -245,7 +442,7 @@ fn collect_lines(input: &str) -> Result<Vec<Line>, SyonError> {
         }
     }
 
-    Ok(lines)
+    Ok((lines, line_nos))
 }
 
 fn parse_inline_value(pair: Pair<Rule>) -> LineValue {
@@ -255,7 +452,11 @@ fn parse_inline_value(pair: Pair<Rule>) -> LineValue {
                 return LineValue::Literal(extract_literal_content(inner));
             }
             Rule::scalar_value => {
-                return LineValue::Scalar(extract_scalar(inner));
+                let s = extract_scalar(inner);
+                return match block_header(&s) {
+                    Some(chomp) => LineValue::BlockHeader(chomp),
+                    None => LineValue::Scalar(s),
+                };
             }
             _ => {}
         }
@@ -334,12 +535,18 @@ fn extract_comment_text(pair: Pair<Rule>) -> String {
 
 struct Builder<'a> {
     lines: &'a [Line],
+    /// Source line of each entry in `lines`, 1-based.
+    line_nos: &'a [usize],
+    /// The original text, split into lines. A block scalar is verbatim, so
+    /// its body has to come from here rather than from tokens -- tokenising
+    /// `# 7 solutions` inside a `|` block would turn content into a comment.
+    src: &'a [&'a str],
     pos: usize,
 }
 
 impl<'a> Builder<'a> {
-    fn new(lines: &'a [Line]) -> Self {
-        Self { lines, pos: 0 }
+    fn new(lines: &'a [Line], line_nos: &'a [usize], src: &'a [&'a str]) -> Self {
+        Self { lines, line_nos, src, pos: 0 }
     }
 
     fn peek_indent(&self) -> Option<usize> {
@@ -350,6 +557,92 @@ impl<'a> Builder<'a> {
             Line::LiteralBlock { indent, .. } => *indent,
             _ => 0,
         })
+    }
+
+    /// Gather the body of a `|` block scalar, verbatim from the source.
+    ///
+    /// Content is every following line indented past `owner_indent`, minus the
+    /// block's common indentation. It is read from the original text because
+    /// a block body is not SYON: `# 7 solutions` inside one is a shell
+    /// comment, and the grammar would otherwise tokenise it as a SYON comment
+    /// and end the block early.
+    fn take_block_scalar(
+        &mut self,
+        chomp: Chomp,
+        owner_indent: usize,
+        header_line: usize,
+    ) -> String {
+        let mut body: Vec<&str> = Vec::new();
+        let mut last = header_line;
+        let mut i = header_line; // src[header_line] is the line after the header
+
+        while let Some(line) = self.src.get(i) {
+            if line.trim().is_empty() {
+                body.push(line);
+                i += 1;
+                continue;
+            }
+            if line.len() - line.trim_start().len() > owner_indent {
+                body.push(line);
+                i += 1;
+                last = i;
+            } else {
+                break;
+            }
+        }
+        // Trailing blank lines belong to whatever follows, not to the block.
+        while body.last().is_some_and(|l| l.trim().is_empty()) {
+            body.pop();
+        }
+
+        let indent = body
+            .iter()
+            .filter(|l| !l.trim().is_empty())
+            .map(|l| l.len() - l.trim_start().len())
+            .min()
+            .unwrap_or(0);
+
+        let mut out = String::new();
+        for l in &body {
+            out.push_str(l.get(indent..).unwrap_or(""));
+            out.push('\n');
+        }
+
+        // Skip every token produced from the lines just consumed.
+        while self.line_nos.get(self.pos).is_some_and(|&n| n <= last) {
+            self.pos += 1;
+        }
+
+        match chomp {
+            Chomp::Strip => while out.ends_with('\n') { out.pop(); },
+            Chomp::Clip => while out.ends_with("\n\n") { out.pop(); },
+            Chomp::Keep => {}
+        }
+        out
+    }
+
+    /// Fold continuation lines into the preceding plain scalar.
+    ///
+    /// A continuation carries no marker; it is identified by being indented
+    /// past its owner and by not being structural. Only `Raw` lines qualify,
+    /// so a genuine child block still nests:
+    ///
+    /// ```text
+    /// - task: build      <- ListItem
+    ///   vars:            <- KeyValue, a child mapping, not a continuation
+    /// ```
+    ///
+    /// Newlines fold to single spaces, as in YAML.
+    fn take_continuation(&mut self, owner_indent: usize) -> Option<String> {
+        let mut parts: Vec<&str> = Vec::new();
+        while let Some(Line::Raw { indent, text, .. }) = self.lines.get(self.pos) {
+            if *indent <= owner_indent {
+                break;
+            }
+            parts.push(text.trim());
+            self.pos += 1;
+        }
+        (!parts.is_empty()).then(|| parts.join(" "))
     }
 
     fn peek_is_fence(&self) -> bool {
@@ -428,12 +721,34 @@ impl<'a> Builder<'a> {
                 self.lines.get(self.pos)
             {
                 let key = key.clone();
-                let inline_val = value.as_ref().map(|v| match v {
-                    LineValue::Scalar(s) => Value::Scalar(s.clone()),
-                    LineValue::Literal(s) => Value::LiteralBlock(s.clone()),
+                let header = match value.as_ref() {
+                    Some(LineValue::BlockHeader(c)) => Some(*c),
+                    _ => None,
+                };
+                let inline_val = value.as_ref().and_then(|v| match v {
+                    LineValue::Scalar(s) => Some(Value::Scalar(s.clone())),
+                    LineValue::Literal(s) => Some(Value::LiteralBlock(s.clone())),
+                    LineValue::BlockHeader(_) => None,
                 });
                 let trailing_comment = trailing.clone();
+                let header_line = self.line_nos.get(self.pos).copied().unwrap_or(0);
                 self.pos += 1;
+                let inline_val = match header {
+                    Some(c) => {
+                        Some(Value::LiteralBlock(self.take_block_scalar(c, indent, header_line)))
+                    }
+                    None => inline_val,
+                };
+                // A plain scalar may continue on the following deeper lines.
+                let inline_val = match inline_val {
+                    Some(Value::Scalar(s)) if header.is_none() => Some(Value::Scalar(
+                        match self.take_continuation(indent) {
+                            Some(rest) => format!("{s} {rest}"),
+                            None => s,
+                        },
+                    )),
+                    other => other,
+                };
 
                 // Check for a child block at indent+1 (or more)
                 let child_indent = self.peek_indent();
@@ -487,12 +802,34 @@ impl<'a> Builder<'a> {
             }
 
             if let Some(Line::ListItem { value, trailing, indent: _ }) = self.lines.get(self.pos) {
-                let inline_val = value.as_ref().map(|v| match v {
-                    LineValue::Scalar(s) => Value::Scalar(s.clone()),
-                    LineValue::Literal(s) => Value::LiteralBlock(s.clone()),
+                let header = match value.as_ref() {
+                    Some(LineValue::BlockHeader(c)) => Some(*c),
+                    _ => None,
+                };
+                let inline_val = value.as_ref().and_then(|v| match v {
+                    LineValue::Scalar(s) => Some(Value::Scalar(s.clone())),
+                    LineValue::Literal(s) => Some(Value::LiteralBlock(s.clone())),
+                    LineValue::BlockHeader(_) => None,
                 });
                 let trailing_comment = trailing.clone();
+                let header_line = self.line_nos.get(self.pos).copied().unwrap_or(0);
                 self.pos += 1;
+                let inline_val = match header {
+                    Some(c) => {
+                        Some(Value::LiteralBlock(self.take_block_scalar(c, indent, header_line)))
+                    }
+                    None => inline_val,
+                };
+                // A plain scalar may continue on the following deeper lines.
+                let inline_val = match inline_val {
+                    Some(Value::Scalar(s)) if header.is_none() => Some(Value::Scalar(
+                        match self.take_continuation(indent) {
+                            Some(rest) => format!("{s} {rest}"),
+                            None => s,
+                        },
+                    )),
+                    other => other,
+                };
 
                 let child_indent = self.peek_indent();
                 let child_value = if let Some(ci) = child_indent {
@@ -569,10 +906,16 @@ impl<'a> Builder<'a> {
 
 /// Parse a SYON source string into a [`SyonFile`].
 pub fn parse(input: &str) -> Result<SyonFile, SyonError> {
+    parse_with(input, ParseOptions::default())
+}
+
+/// Parse under explicit options. See [`ParseOptions`].
+pub fn parse_with(input: &str, opts: ParseOptions) -> Result<SyonFile, SyonError> {
     preflight(input)?;
 
-    let lines = collect_lines(input)?;
-    let mut builder = Builder::new(&lines);
+    let (lines, line_nos) = collect_lines(input, &opts)?;
+    let src: Vec<&str> = input.lines().collect();
+    let mut builder = Builder::new(&lines, &line_nos, &src);
     let mut documents: Vec<Document> = Vec::new();
 
     while builder.pos < builder.lines.len() {
@@ -588,10 +931,29 @@ pub fn parse(input: &str) -> Result<SyonFile, SyonError> {
                 // Stray close — skip
                 builder.pos += 1;
             }
+            // A raw line still here was never claimed by a block scalar, so
+            // it is genuinely malformed rather than verbatim content.
+            Some(Line::Raw { text, line, .. }) => {
+                return Err(SyonError::Syntax(format!(
+                    "line {line}: unexpected content {:?} -- expected a mapping entry, \
+                     a sequence item, or the body of a `|` block",
+                    text.trim()
+                )));
+            }
             _ => {
                 // Main (unfenced) document
+                let before = builder.pos;
                 let body = builder.parse_document_body()?;
                 documents.push(Document { path: None, format: None, body });
+
+                // Guarantee progress. `parse_document_body` gathers leading
+                // comments and rewinds when no entry follows them, so a
+                // document of only comments consumes nothing and would spin
+                // here forever. Nothing consumed means nothing is left that
+                // can be consumed.
+                if builder.pos == before {
+                    break;
+                }
             }
         }
     }
@@ -802,20 +1164,34 @@ mod tests {
     }
 
     #[test]
-    fn reject_flow_mapping() {
-        let err = parse_document("{key: value}\n").unwrap_err().to_string();
-        assert!(err.contains("flow") || err.contains("{"), "got: {err}");
+    fn flow_sequence_passes_through_as_text() {
+        // SYON does not interpret flow syntax, and does not reject it either.
+        // The value reaches the consumer verbatim, to interpret or not.
+        let doc = parse_document("key: [a, b]\n").unwrap();
+        let Value::Mapping(entries) = doc.body else { panic!("expected a mapping") };
+        assert_eq!(entries[0].value, Value::Scalar("[a, b]".into()));
     }
 
     #[test]
-    fn reject_flow_sequence() {
-        let err = parse_document("key: [a, b]\n").unwrap_err().to_string();
-        assert!(err.contains("flow") || err.contains("["), "got: {err}");
+    fn flow_mapping_passes_through_as_text() {
+        let doc = parse_document("key: {a: 1}\n").unwrap();
+        let Value::Mapping(entries) = doc.body else { panic!("expected a mapping") };
+        assert_eq!(entries[0].value, Value::Scalar("{a: 1}".into()));
     }
 
     #[test]
-    fn reject_explicit_document_start() {
-        assert!(parse_document("---\nkey: value\n").is_err());
+    fn template_expressions_pass_through_as_text() {
+        let doc = parse_document("key: {{ .TASK }}-suffix\n").unwrap();
+        let Value::Mapping(entries) = doc.body else { panic!("expected a mapping") };
+        assert_eq!(entries[0].value, Value::Scalar("{{ .TASK }}-suffix".into()));
+    }
+
+    #[test]
+    fn reject_second_document_start() {
+        // A leading `---` opens the single document this file holds, and is
+        // accepted. What SYON forbids is a multi-document stream.
+        assert!(parse_document("---\nkey: value\n").is_ok());
+        assert!(parse_document("key: value\n---\nother: value\n").is_err());
     }
 
     #[test]
@@ -910,5 +1286,103 @@ mod tests {
             }
             other => panic!("expected Mapping, got {other:?}"),
         }
+    }
+
+    // --- Taskfile YAML compatibility -------------------------------------
+
+    fn scalar_of(src: &str, key: &str) -> String {
+        let doc = parse_document(src).unwrap();
+        let Value::Mapping(entries) = doc.body else { panic!("expected a mapping") };
+        let e = entries.into_iter().find(|e| e.key == key).expect("key not found");
+        match e.value {
+            Value::Scalar(s) | Value::LiteralBlock(s) => s,
+            other => panic!("expected a scalar, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn indicator_chars_inside_scalars_are_content() {
+        // `&` and `!` are indicators only at node start. A shell redirect is
+        // not an anchor.
+        assert_eq!(scalar_of("a: command -v curl >/dev/null 2>&1\n", "a"),
+                   "command -v curl >/dev/null 2>&1");
+        assert_eq!(scalar_of("a: Hello, World!\n", "a"), "Hello, World!");
+        assert_eq!(scalar_of("a: echo x && echo y\n", "a"), "echo x && echo y");
+    }
+
+    #[test]
+    fn anchors_and_tags_are_still_rejected_at_node_start() {
+        assert!(parse_document("a: &anc val\n").is_err());
+        assert!(parse_document("a: !!str 3\n").is_err());
+    }
+
+    #[test]
+    fn block_scalar_keeps_its_body_verbatim() {
+        // The body is not SYON: `# 7 solutions` is shell, not a comment, and
+        // must not end the block.
+        let src = "a: |\n  cat <<'EOF'\n  #----\n  # 7 solutions\n  alias do=\"task\"\n  EOF\n";
+        assert_eq!(
+            scalar_of(src, "a"),
+            "cat <<'EOF'\n#----\n# 7 solutions\nalias do=\"task\"\nEOF\n"
+        );
+    }
+
+    #[test]
+    fn folded_marker_is_treated_as_literal() {
+        // SYON has no folded style; `>` means `|`, so newlines survive.
+        assert_eq!(scalar_of("a: >\n  one\n  two\n", "a"), "one\ntwo\n");
+    }
+
+    #[test]
+    fn block_scalar_chomping() {
+        assert_eq!(scalar_of("a: |-\n  one\n", "a"), "one");
+        assert_eq!(scalar_of("a: |\n  one\n", "a"), "one\n");
+    }
+
+    #[test]
+    fn continuation_lines_fold_into_the_scalar() {
+        assert_eq!(
+            scalar_of("a: cargo run --manifest-path x/Cargo.toml\n            -p app -- \"y\"\n", "a"),
+            "cargo run --manifest-path x/Cargo.toml -p app -- \"y\""
+        );
+    }
+
+    #[test]
+    fn a_child_block_is_not_a_continuation() {
+        // Structural lines nest; only non-structural deeper lines fold.
+        let doc = parse_document("outer:\n  inner: 1\n").unwrap();
+        let Value::Mapping(entries) = doc.body else { panic!() };
+        assert!(matches!(entries[0].value, Value::Mapping(_)));
+    }
+
+    #[test]
+    fn comment_only_document_terminates() {
+        // Regression: this looped forever, because the body parser gathers
+        // leading comments then rewinds when no entry follows.
+        assert!(parse("# just a comment\n").is_ok());
+        assert!(parse("# one\n# two\n\n").is_ok());
+    }
+
+    #[test]
+    fn a_leading_document_marker_is_allowed_but_a_second_is_not() {
+        assert!(parse("---\nkey: value\n").is_ok());
+        assert!(parse("key: value\n---\nother: value\n").is_err());
+    }
+
+    #[test]
+    fn structural_indent_must_match_space_count() {
+        // Default step is 2.
+        assert!(parse("a:\n  b: 1\n").is_ok());
+        let err = parse("a:\n   b: 1\n").unwrap_err().to_string();
+        assert!(err.contains("multiple of 2"), "got: {err}");
+
+        // A block body is content, so it is exempt from the step.
+        assert!(parse_with("a: |\n   ragged\n     body\n", ParseOptions::default()).is_ok());
+    }
+
+    #[test]
+    fn multi_space_before_a_trailing_comment() {
+        // Writers align comments into a column.
+        assert_eq!(scalar_of("a: \"x\"   # note\n", "a"), "x");
     }
 }

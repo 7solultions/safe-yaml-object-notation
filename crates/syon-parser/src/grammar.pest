@@ -75,7 +75,11 @@ scalar_value = { dq_scalar | plain_scalar }
 // ---------------------------------------------------------------------------
 
 inline_comment_text = { not_nl* }
-trailing_comment    = { SP ~ "#" ~ (SP ~ inline_comment_text | &NEWLINE) }
+// `SP+`, not `SP`: writers align trailing comments into a column, so several
+// spaces before the `#` is ordinary. A plain scalar stops just before the `#`
+// and leaves exactly one space behind, but a quoted scalar ends at its closing
+// quote and leaves all of them.
+trailing_comment    = { SP+ ~ "#" ~ (SP ~ inline_comment_text | &(NEWLINE | EOI)) }
 
 // ---------------------------------------------------------------------------
 // Comment line
@@ -150,6 +154,18 @@ sequence_item = {
 // Block: a mapping, sequence, or scalar block
 // ---------------------------------------------------------------------------
 
+// A line matching no structural rule. It is the *last* alternative, so it
+// only ever fires where every other rule has failed.
+//
+// This exists for block scalar bodies. `|` introduces a block whose content
+// lines are verbatim and deliberately not SYON -- `echo one` is neither a
+// mapping entry nor a sequence item. A PEG has no indentation context, so it
+// cannot tell such a line from a malformed one; that decision needs the
+// enclosing block's indent, which only the Builder knows. Tokenising the line
+// here and letting the Builder claim it (or reject it as stray) puts the
+// decision where the context is.
+raw_line = { indent ~ not_nl+ ~ (NEWLINE | EOI) }
+
 statement = _{
     blank_line
   | comment
@@ -158,6 +174,7 @@ statement = _{
   | (literal_node ~ (NEWLINE | EOI))
   | fence_open
   | fence_close
+  | raw_line
 }
 
 // ---------------------------------------------------------------------------
