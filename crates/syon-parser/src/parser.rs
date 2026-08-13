@@ -533,7 +533,11 @@ fn extract_scalar(pair: Pair<Rule>) -> String {
                 return s[1..s.len() - 1].replace("''", "'");
             }
             Rule::plain_scalar => {
-                return inner.as_str().trim_end().to_owned();
+                // Both ends: the `: ` operator consumes one space, so
+                // `key:   value` would otherwise carry the rest into the
+                // value. A plain scalar cannot hold leading or trailing
+                // spaces in YAML either -- quote it to keep them.
+                return inner.as_str().trim().to_owned();
             }
             _ => {}
         }
@@ -1555,5 +1559,27 @@ mod tests {
         assert_eq!(e[0].value, Value::Scalar("3".into()));
         assert_eq!(e[1].value, Value::Scalar("it's here".into()));
         assert_eq!(e[2].value, Value::Scalar("{{ .X }}".into()));
+    }
+
+    #[test]
+    fn spaces_after_a_block_1_symbol_are_trimmed() {
+        // `: ` and `- ` consume exactly one space, so any alignment padding
+        // after them would otherwise land inside the value.
+        let doc = parse_document("a:   ./module1\nb:     x\n").unwrap();
+        let Value::Mapping(e) = doc.body else { panic!() };
+        assert_eq!(e[0].value, Value::Scalar("./module1".into()));
+        assert_eq!(e[1].value, Value::Scalar("x".into()));
+
+        let doc = parse_document("items:\n  -   spaced\n").unwrap();
+        let Value::Mapping(e) = doc.body else { panic!() };
+        let Value::Sequence(items) = &e[0].value else { panic!() };
+        assert_eq!(items[0].value, Value::Scalar("spaced".into()));
+    }
+
+    #[test]
+    fn quoting_preserves_spaces_a_plain_scalar_would_lose() {
+        let doc = parse_document("a: \"  kept  \"\n").unwrap();
+        let Value::Mapping(e) = doc.body else { panic!() };
+        assert_eq!(e[0].value, Value::Scalar("  kept  ".into()));
     }
 }
