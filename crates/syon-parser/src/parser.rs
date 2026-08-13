@@ -237,6 +237,22 @@ fn depth_of(indent: usize, opts: &ParseOptions) -> Result<usize, SyonError> {
     }
 }
 
+/// Strip one layer of quoting from a scalar written inline.
+///
+/// Mirrors what `extract_scalar` does for an ordinary mapping entry: double
+/// quotes take backslash escapes, single quotes are literal with `''` for one
+/// apostrophe.
+fn unquote_scalar(text: &str) -> String {
+    let bytes = text.as_bytes();
+    if bytes.len() >= 2 && bytes[0] == b'"' && bytes[bytes.len() - 1] == b'"' {
+        return unescape_dq(&text[1..text.len() - 1]);
+    }
+    if bytes.len() >= 2 && bytes[0] == b'\'' && bytes[bytes.len() - 1] == b'\'' {
+        return text[1..text.len() - 1].replace("''", "'");
+    }
+    text.to_string()
+}
+
 /// Split `key: value` out of a sequence item's inline scalar.
 ///
 /// `- task: build` is a compact block mapping: one entry, written on the same
@@ -266,7 +282,10 @@ fn split_compact_entry(text: &str) -> Option<(String, String)> {
                     if key.is_empty() || key.starts_with([':', '-', '#']) {
                         return None;
                     }
-                    return Some((key.to_string(), rest.trim().to_string()));
+                    // Unquote the value, as the ordinary `key: value` path
+                    // does. Leaving the quotes on turns `- sh: '[ x = y ]'`
+                    // into a single quoted word the shell cannot run.
+                    return Some((key.to_string(), unquote_scalar(rest.trim())));
                 }
             }
             _ => {}
@@ -1581,5 +1600,27 @@ mod tests {
         let doc = parse_document("a: \"  kept  \"\n").unwrap();
         let Value::Mapping(e) = doc.body else { panic!() };
         assert_eq!(e[0].value, Value::Scalar("  kept  ".into()));
+    }
+
+    #[test]
+    fn a_compact_entry_unquotes_its_value() {
+        // `- sh: '[ x = y ]'` must reach the consumer as a runnable command,
+        // not as a single quoted word.
+        let opts = ParseOptions { allow_key_in_line_after_list: true, ..Default::default() };
+        let f = parse_with("pre:\n  - sh: '[ \"a\" = a ]'\n", opts).unwrap();
+        let Value::Mapping(e) = f.documents[0].body.clone() else { panic!() };
+        let Value::Sequence(items) = &e[0].value else { panic!() };
+        let Value::Mapping(entry) = &items[0].value else { panic!("expected a mapping") };
+        assert_eq!(entry[0].value, Value::Scalar("[ \"a\" = a ]".into()));
+    }
+
+    #[test]
+    fn a_compact_entry_keeps_an_unquoted_value_intact() {
+        let opts = ParseOptions { allow_key_in_line_after_list: true, ..Default::default() };
+        let f = parse_with("deps:\n  - task: build\n", opts).unwrap();
+        let Value::Mapping(e) = f.documents[0].body.clone() else { panic!() };
+        let Value::Sequence(items) = &e[0].value else { panic!() };
+        let Value::Mapping(entry) = &items[0].value else { panic!() };
+        assert_eq!(entry[0].value, Value::Scalar("build".into()));
     }
 }
