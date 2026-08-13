@@ -7,8 +7,16 @@ use crate::parser::parse;
 /// On success returns a pointer to a JSON UTF-8 string that must be freed with
 /// [`syon_free`]. On error returns a JSON object `{"error": "<message>"}`.
 /// Never returns null.
+///
+/// # Safety
+/// `input` must be null, or a valid pointer to a null-terminated C string that
+/// stays valid for the duration of the call. The null case is handled and
+/// reported as an error; any other invalid pointer is undefined behaviour,
+/// which is what makes this function `unsafe` despite the null check.
+///
+/// The C ABI is unchanged -- `unsafe` constrains Rust callers only.
 #[no_mangle]
-pub extern "C" fn syon_parse_json(input: *const c_char) -> *mut c_char {
+pub unsafe extern "C" fn syon_parse_json(input: *const c_char) -> *mut c_char {
     let result = (|| -> Result<String, String> {
         if input.is_null() {
             return Err("null input pointer".into());
