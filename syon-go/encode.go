@@ -12,8 +12,8 @@ import (
 //
 // Structs and maps become mappings (struct field order; map keys sorted);
 // slices become sequences; scalars become string values, quoted only when
-// needed. Multi-line strings are written as `[[[ … ]]]` literal blocks. The
-// output is valid SYON that Unmarshal round-trips.
+// needed. Multi-line strings are written as `|` block scalars. The output is
+// valid SYON that Unmarshal round-trips.
 func Marshal(v any) ([]byte, error) {
 	var b strings.Builder
 	rv := deref(reflect.ValueOf(v))
@@ -128,18 +128,25 @@ func encodeSequence(b *strings.Builder, rv reflect.Value, depth int) error {
 	return nil
 }
 
-// writeLiteral emits `prefix [[[` then the dedented content re-indented under
-// the block, then `]]]`.
+// writeLiteral emits `prefix |` then the content indented one level under it.
+//
+// The chomping indicator is chosen so Unmarshal returns the string that went
+// in: `|` restores one trailing newline, so a value without one needs `|-`.
 func writeLiteral(b *strings.Builder, ind, prefix, s string) {
-	b.WriteString(ind + prefix + " [[[\n")
-	for _, line := range strings.Split(s, "\n") {
+	header := "|-"
+	body := s
+	if strings.HasSuffix(s, "\n") {
+		header = "|"
+		body = strings.TrimSuffix(s, "\n")
+	}
+	b.WriteString(ind + prefix + " " + header + "\n")
+	for _, line := range strings.Split(body, "\n") {
 		if line == "" {
 			b.WriteString("\n")
 		} else {
 			b.WriteString(ind + "  " + line + "\n")
 		}
 	}
-	b.WriteString(ind + "]]]\n")
 }
 
 func scalarText(rv reflect.Value) string {

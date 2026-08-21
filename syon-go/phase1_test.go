@@ -29,21 +29,21 @@ func TestPhase1Block1OnlyIsFullyYAMLCompatible(t *testing.T) {
 	}
 }
 
-func TestPhase1LiteralBlockReducesCompatibility(t *testing.T) {
-	// One mapping entry (Block 1) whose value is a literal block (block2) --
-	// a mix, hence 50% rather than 0%, matching the Rust analyzer.
-	c := phase1Counts(t, "description: [[[\n  hello\n]]]\n")
+func TestPhase1BlockScalarsCostComplexityNotCompatibility(t *testing.T) {
+	// A `|` block scalar is ordinary YAML 1.2, so it must not reduce
+	// compatibility -- it only raises complexity. Matches the Rust analyzer.
+	c := phase1Counts(t, "description: |\n  hello\n")
 	if c.MappingEntries != 1 {
 		t.Errorf("MappingEntries = %d, want 1", c.MappingEntries)
 	}
 	if c.LiteralBlocks != 1 {
 		t.Errorf("LiteralBlocks = %d, want 1", c.LiteralBlocks)
 	}
-	if c.YAMLCompatible() {
-		t.Error("expected NOT YAML-compatible")
+	if !c.YAMLCompatible() {
+		t.Error("expected YAML-compatible")
 	}
-	if got := c.YAMLCompatibilityPercent(); got != 50 {
-		t.Errorf("YAMLCompatibilityPercent = %d, want 50", got)
+	if got := c.YAMLCompatibilityPercent(); got != 100 {
+		t.Errorf("YAMLCompatibilityPercent = %d, want 100", got)
 	}
 }
 

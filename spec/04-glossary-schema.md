@@ -63,12 +63,11 @@ structure is preserved verbatim.
 # Plain scalar (single sentence)
 description: A compact binary encoding for structured data.
 
-# Literal block (multi-line)
-description: [[[
+# Block scalar (multi-line)
+description: |
   A human-writable data serialization format that is safe (no implicit
   typing, no executable constructs), simple (a small fixed set of markers),
   and structured (keys, lists, nesting).
-]]]
 ```
 
 ### 4.2.4 Scope — `contexts`
@@ -238,11 +237,10 @@ abbreviation: SYON               # identity group — satisfies at-least-one
 term: Safe YAML Object Notation  # identity group — both present, both kept
 id: syon-001                     # provenance — stable cross-reference id
 version: 0.9.0                   # provenance — current spec version
-description: [[[                 # definition — literal block for multi-line
+description: |                    # definition — block scalar for multi-line
   A human-writable data serialization format that is safe (no implicit
   typing, no executable constructs), simple (a small fixed set of markers),
   and structured (keys, lists, nesting). A member of the ONE family.
-]]]
 contexts:                        # scope — domain tags
   - data-formats
   - serialization
@@ -268,8 +266,9 @@ history:                         # changelog group — at-most-one satisfied
 constraint is satisfied, and providing both gives tooling a choice of how
 to display the entry (short form vs. long form).
 
-**`description` uses a literal block.** The `[[[...]]]` syntax preserves
-paragraph structure without requiring escape sequences.
+**`description` uses a block scalar.** The `|` syntax preserves paragraph
+structure without requiring escape sequences, and is ordinary YAML 1.2 — so
+an entry using it stays readable by a plain YAML parser.
 
 **`synonyms` uses sequence form, `opposites` uses mapping form.** This
 demonstrates that the two shapes are not interchangeable when context labels

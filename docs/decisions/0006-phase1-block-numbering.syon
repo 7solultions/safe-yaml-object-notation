@@ -1,12 +1,12 @@
 architecture-decision-record:
   identifier: "0006"
   title: Phase1 report uses its own block numbering, distinct from the grammar spec
-  status: accepted
+  status: superseded
   date: "2026-07-11"
   deciders:
     - felix
-  superseded-by: ""
-  context: [[[
+  superseded-by: "0007"
+  context: |
     The phase1 analyzer (crates/syon-parser/src/phase1.rs, syon-go/phase1.go,
     the syon phase1 and go run ./cmd/phase1 subcommands) evaluates a
     document's use of each SYON block type, reporting a complexity score and
@@ -18,8 +18,7 @@ architecture-decision-record:
     ADR (0002, 0003, 0005) and grammar.pest use the spec's numbering.
 
     This was confirmed deliberate, not a slip, when asked directly.
-    ]]]
-  decision: [[[
+  decision: |
     Keep the phase1 tool's block2 equals literal-blocks, block3 equals
     fences numbering, distinct from spec/02-grammar.md's block2 equals
     fence, block3 equals literal numbering. Document the divergence
@@ -27,7 +26,17 @@ architecture-decision-record:
     comment at the top of phase1.rs and phase1.go, and this ADR, so a
     reader of one numbering scheme is pointed at the other rather than
     silently misreading a report or a grammar rule.
-    ]]]
+  outcome: |
+    Superseded by ADR 0007, which removed Block 3 from the language. With one
+    of the two contested block types gone, the numbering schemes had nothing
+    left to disagree about, and the phase1 report keys were renamed from
+    block2/block3 to the self-describing block-scalars/fences. The negative
+    consequence recorded below -- two contradictory conventions coexisting --
+    no longer applies.
+
+    Of the two further findings recorded here, the Go comment-tracking gap is
+    still open: syon-go's AST still does not retain comments, so its phase1
+    report still shows zero for hash-space where the Rust one does not.
   consequences:
     positive:
       - The phase1 tool's field names (block2, block3) match the numbering its author actually wants for evaluation purposes, without forcing a rename.

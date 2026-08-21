@@ -17,15 +17,21 @@ block style:
 - Not every valid YAML document is a valid SYON document (see the forbidden
   set in `02-grammar.md`).
 
-SYON as a whole is **not** a YAML subset. Block 2 (document fences) and
-Block 3 (literal escape hatches) are SYON-specific syntax with no YAML
-equivalent — a ` ```path.format ` fence or a `[[[`/`]]]` delimiter is not
-valid YAML, so a document using either block type cannot be parsed by a
-YAML 1.2 parser. In particular, SYON does not use YAML's native `---`/`...`
+SYON as a whole is **not** a YAML subset. Block 2 (document fences) is
+SYON-specific syntax with no YAML equivalent — a ` ```path.format ` fence is
+not valid YAML, so a document using one cannot be parsed by a YAML 1.2
+parser. In particular, SYON does not use YAML's native `---`/`...`
 multi-document markers, but Block 2 fences do provide multi-document-style
 embedding of arbitrary content through a different, SYON-only mechanism.
 
+The fence is now the *only* such construct. A third block type, the
+`[[[`/`]]]` literal escape hatch, was removed in favour of YAML's own `|`
+block scalar — see ADR 0007.
+
 Excluded (Block 1 / YAML block style) features: anchors (`&`), aliases
 (`*`), explicit tags (`!!`), directives (`%YAML`, `%TAG`), YAML's native
-`---`/`...` document markers, YAML block scalars (`|`, `>`), flow
-indicators used outside inline context.
+`---`/`...` document markers, flow indicators used outside inline context.
+
+Block scalars (`|`, `|-`, `|+`) are **included**, and are how SYON writes
+verbatim multi-line text. `>` parses as a spelling of `|`: SYON has no
+folded style and never folds newlines into spaces.

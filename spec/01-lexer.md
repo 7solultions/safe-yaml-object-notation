@@ -83,8 +83,7 @@ id:  abc#123               # ok — `#` is not preceded by space
 | `Value(String)` | Scalar value on the same line as a key or list item |
 | `ListItem` | The `- ` sequence item marker |
 | `Comment(String)` | Text following a structural `# ` marker |
-| `LiteralBlockOpen` | Opening `[[[` on its own line |
-| `LiteralBlockClose` | Closing `]]]` on its own line |
+| `BlockHeader(chomp)` | A `|` (or `>`) block-scalar header in a value position |
 | `DocFence { path, format }` | Opening triple-backtick fence with `path.format` info string |
 | `Indent` | Indentation level increased |
 | `Dedent` | Indentation level decreased |

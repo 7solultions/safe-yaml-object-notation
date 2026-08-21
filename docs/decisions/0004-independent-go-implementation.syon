@@ -6,7 +6,7 @@ architecture-decision-record:
   deciders:
     - felix
   superseded-by: ""
-  context: [[[
+  context: |
     SYON has three language surfaces. Rust (crates/syon-parser,
     crates/syon-cli) is the primary implementation. Python
     (crates/syon-python) is a PyO3 extension module that binds directly
@@ -20,11 +20,9 @@ architecture-decision-record:
     cdylib and staticlib outputs) for exactly this kind of cross-language
     reuse, Go bindings via cgo were a real alternative to writing a
     second parser from scratch.
-    ]]]
-  decision: [[[
+  decision: |
     Give Go an independent, pure-Go implementation rather than cgo
     bindings to syon-parser.
-    ]]]
   consequences:
     positive:
       - Go consumers get a dependency-free, cgo-free module -- no C toolchain, no cross-compilation pain from linking a Rust cdylib, no CGO_ENABLED gotchas. This matters more for a Go audience than for Python, where PyO3/maturin-built wheels already hide the FFI boundary from consumers.

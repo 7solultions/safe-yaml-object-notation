@@ -12,12 +12,15 @@ valid YAML, but not every valid YAML document is valid SYON (see
 [what's forbidden](#safety-whats-forbidden) below).
 
 SYON as a whole is **not** a YAML subset. [Block 2](#block-2-document-fence)
-and [Block 3](#block-3-literal-escape-hatch) are SYON-specific syntax with no
-YAML equivalent — a ` ```path.format ` fence or a `[[[`/`]]]` delimiter isn't
-valid YAML, so a document using either block type can't be parsed by a YAML
-1.2 parser. In particular, SYON doesn't use YAML's native `---`/`...`
+is SYON-specific syntax with no YAML equivalent — a ` ```path.format ` fence
+isn't valid YAML, so a document using one can't be parsed by a YAML 1.2
+parser. In particular, SYON doesn't use YAML's native `---`/`...`
 multi-document markers, but Block 2 fences do provide multi-document-style
 embedding of arbitrary content through a different, SYON-only mechanism.
+
+The fence is the only such construct. SYON once had a third block type, the
+`[[[`/`]]]` literal escape hatch; it was removed in favour of YAML's own `|`
+block scalar, which does the same job without costing compatibility.
 
 ## Block 1 — Record (YAML block-style subset)
 
@@ -56,17 +59,25 @@ returned verbatim in the AST for the application to dispatch:
 ```
 ````
 
-## Block 3 — Literal escape hatch
+## Block scalars — verbatim multi-line text
 
-A verbatim, uninterpreted block delimited by `[[[` and `]]]`, useful for
-multi-line prose or content that would otherwise need heavy escaping:
+Multi-line prose, or content that would otherwise need heavy escaping, goes in
+a `|` block scalar — YAML's own syntax, not a SYON invention. The body is
+every following line indented deeper than the key, dedented by its common
+leading indentation, and never parsed as SYON structure:
 
 ```syon
-description: [[[
+description: |
   A human-writable data serialization format that is safe, simple,
   and structured.
-]]]
 ```
+
+Chomping works as in YAML: `|` keeps one trailing newline, `|-` keeps none,
+`|+` keeps all. `>` is accepted as a spelling of `|` so YAML written for other
+tools keeps its meaning — SYON has **no folded style** and never folds
+newlines into spaces.
+
+Writing `[[[` is an error that names this replacement.
 
 ## Safety: what's forbidden
 
@@ -92,7 +103,7 @@ for you:
 | `true` | `Scalar("true")` — not a boolean |
 | `null` | `Scalar("null")` — not null |
 | `"hello"` | `Scalar("hello")` — quotes stripped |
-| `[[[…]]]` | `LiteralBlock(…)` — verbatim string |
+| `\|` block scalar | `LiteralBlock(…)` — verbatim string, dedented |
 
 Applications that need typed values perform their own post-parse
 interpretation.
@@ -113,7 +124,7 @@ Comments are attached to the AST, not discarded:
 ```text
 Value
   ├── Scalar(String)
-  ├── LiteralBlock(String)     verbatim [[[ … ]]] content
+  ├── LiteralBlock(String)     verbatim `|` block-scalar content
   ├── Mapping(Vec<MappingEntry>)
   │     MappingEntry { key, value, leading_comments, trailing_comment }
   └── Sequence(Vec<SequenceItem>)

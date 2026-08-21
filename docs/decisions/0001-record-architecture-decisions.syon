@@ -6,7 +6,7 @@ architecture-decision-record:
   deciders:
     - felix
   superseded-by: ""
-  context: [[[
+  context: |
     SYON has accumulated several architecturally significant decisions --
     which parsing engine to use, why forbidden constructs are rejected via
     a separate text scan rather than the grammar alone, why the Go
@@ -15,8 +15,7 @@ architecture-decision-record:
     They existed only as commit messages and code comments, which meant
     new contributors (human or otherwise) had to reconstruct the
     reasoning from scratch, or risked re-litigating settled trade-offs.
-    ]]]
-  decision: [[[
+  decision: |
     Record architecturally significant decisions as Architecture Decision
     Records (ADRs) in docs/decisions/, each one a standalone SYON document
     following this schema: identifier, title, status, date, deciders,
@@ -29,7 +28,6 @@ architecture-decision-record:
     new ADR supersedes it instead (setting its own superseded-by field to
     point back), so the log reads as a true history rather than the
     current-best-guess overwritten in place.
-    ]]]
   consequences:
     positive:
       - Decisions and their rationale are discoverable in one place instead of scattered across git history and spec prose.

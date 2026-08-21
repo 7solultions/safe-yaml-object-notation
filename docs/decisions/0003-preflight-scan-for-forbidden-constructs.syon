@@ -6,7 +6,7 @@ architecture-decision-record:
   deciders:
     - felix
   superseded-by: ""
-  context: [[[
+  context: |
     SYON must reject a set of YAML constructs: tags, anchors and aliases,
     flow collections, the question-mark complex-key marker, and the
     document markers. In syon-parser, this rejection happens in two
@@ -27,12 +27,10 @@ architecture-decision-record:
     syon-go does not have this split -- its forbidden-construct checks
     live inline in the recursive-descent parser itself, checked at the
     point each construct would otherwise be consumed.
-    ]]]
-  decision: [[[
+  decision: |
     Keep a preflight text scan as a distinct pass ahead of grammar-based
     parsing in the Rust implementation, rather than expressing all
     forbidden-construct rejection inside grammar.pest alone.
-    ]]]
   consequences:
     positive:
       - Forbidden-construct rejection is expressed once, in plain Rust, without needing every corner of the pest grammar to encode it.

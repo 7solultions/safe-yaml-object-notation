@@ -6,7 +6,7 @@ architecture-decision-record:
   deciders:
     - felix
   superseded-by: ""
-  context: [[[
+  context: |
     Early project documentation claimed SYON is a strict safe subset of
     YAML 1.2, without qualification. That claim doesn't hold for the
     whole language. Block 1 (record syntax: indentation-based mappings
@@ -26,14 +26,12 @@ architecture-decision-record:
     document-end markers, but Block 2 fences fill that role through
     different, non-YAML syntax) and that Block 3 is not YAML's block
     scalar, despite serving a similar purpose.
-    ]]]
-  decision: [[[
+  decision: |
     State the YAML relationship precisely: only Block 1 is a strict,
     safe YAML 1.2 subset. SYON as a whole is not YAML-compatible, because
     of Block 2 and Block 3. spec/README.md, spec/02-grammar.md's
     forbidden-set table, the root README.md, and the docs site were
     corrected to this effect.
-    ]]]
   consequences:
     positive:
       - The docs no longer oversell YAML compatibility; the actual boundary (Block 1 only) is stated once, in spec/README.md, and other pages link to it instead of restating the claim.
@@ -46,3 +44,9 @@ architecture-decision-record:
     -
       name: Redesign Block 2 and Block 3 to be valid YAML syntax
       reason: Tracked separately as optional future work, not this decision -- see issues #2 and #3 for YAML-compatible modes for Block 2 and Block 3 respectively. If either ships, this ADR should be superseded rather than silently reworded.
+  amended-by: |
+    ADR 0007 removed Block 3, the literal escape hatch, rather than giving it
+    a YAML-compatible mode. The reasoning here is unchanged and still holds:
+    a construct with no YAML equivalent costs the Block 1 compatibility
+    guarantee. Only the inventory changed. The document fence is now the sole
+    construct that a YAML 1.2 parser cannot read.

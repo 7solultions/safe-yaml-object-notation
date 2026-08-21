@@ -10,6 +10,12 @@ pub enum Value {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SequenceItem {
+    /// Source line, 1-based. Zero when unknown.
+    ///
+    /// Carried so a consumer can point at a line rather than at a whole
+    /// file -- "unrecognised field" is far less useful without one.
+    #[serde(default)]
+    pub line: usize,
     pub value: Value,
     pub leading_comments: Vec<String>,
     pub trailing_comment: Option<String>,
@@ -17,6 +23,9 @@ pub struct SequenceItem {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MappingEntry {
+    /// Source line of the key, 1-based. Zero when unknown.
+    #[serde(default)]
+    pub line: usize,
     pub key: String,
     pub value: Value,
     pub leading_comments: Vec<String>,

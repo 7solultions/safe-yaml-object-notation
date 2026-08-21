@@ -56,14 +56,21 @@ The binary is placed at `target/release/syon`.
 syon phase1 [FILE...]
 ```
 
-Evaluates each file's use of Block 1 (records, including the spacing-rule
-symbols `: `, `- `, `# ` and their inline/literal use elsewhere), Block 2
-(`[[[ ... ]]]` literal blocks — this subcommand's own numbering, the
-opposite of the grammar spec's; see
-[ADR 0006](decisions/0006-phase1-block-numbering.syon)), and Block 3
-(` ``` `path.format` `` ` document fences), then writes a `phase1.report.syon`
+Evaluates each file's use of records (the spacing-rule symbols `: `, `- `,
+`# ` and their inline use elsewhere), `|` block scalars, and
+` ``` `path.format` `` ` document fences, then writes a `phase1.report.syon`
 with a complexity score and a YAML 1.2 compatibility estimate per file plus a
 corpus-wide summary.
+
+The report names these sections rather than numbering them. It used to say
+"block2"/"block3" with the opposite meaning to the grammar spec; removing
+`[[[ ... ]]]` left the two numberings nothing to disagree about — see
+[ADR 0006](decisions/0006-phase1-block-numbering.syon) and
+[ADR 0007](decisions/0007-remove-the-literal-escape-hatch.syon).
+
+Only a fence costs YAML compatibility. A `|` block scalar is ordinary YAML
+1.2, so it raises the complexity score without lowering the compatibility
+estimate.
 
 With no file arguments, it walks the default corpus: `examples/**/*.syon`
 and `docs/decisions/*.syon`.

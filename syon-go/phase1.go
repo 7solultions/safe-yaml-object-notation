@@ -1,12 +1,14 @@
 package syon
 
 // Phase1Counts mirrors crates/syon-parser/src/phase1.rs's analysis, walking
-// an already-parsed Node tree to report Block 1/2/3 usage, a complexity
-// score, and a YAML 1.2 compatibility estimate.
+// an already-parsed Node tree to report block usage, a complexity score, and
+// a YAML 1.2 compatibility estimate.
 //
-// Terminology note: LiteralBlocks is this tool's "block2" and Fences is its
-// "block3" -- the OPPOSITE of spec/02-grammar.md's Block 2 (fence) / Block 3
-// (literal) numbering. See docs/decisions/0006-phase1-block-numbering.syon.
+// Terminology note: this tool once numbered its own blocks the opposite way
+// round from spec/02-grammar.md. That divergence is gone -- `[[[ … ]]]` was
+// removed from the language, leaving Block 1 (records, including `|` block
+// scalars) and Block 2 (the document fence), numbered the same in both. See
+// docs/decisions/0006-phase1-block-numbering.syon.
 //
 // Known cross-implementation gaps versus the Rust analyzer:
 //   - This package's Node does not retain comments in the AST ("future
@@ -18,8 +20,8 @@ type Phase1Counts struct {
 	MappingEntries  uint64
 	SequenceItems   uint64
 	Comments        uint64 // always 0: this AST does not retain comments
-	LiteralBlocks   uint64 // this tool's "block2"
-	Fences          uint64 // this tool's "block3"
+	LiteralBlocks   uint64 // `|` block scalars: valid YAML, so compatible
+	Fences          uint64 // ```path.format document fences (Block 2)
 	MaxNestingDepth uint64
 	InlineColon     uint64
 	InlineDash      uint64
@@ -89,19 +91,23 @@ func (c *Phase1Counts) Complexity() uint64 {
 		c.LiteralBlocks*3 + c.Fences*4 + c.MaxNestingDepth*2
 }
 
-// YAMLCompatible reports whether this content used only Block 1 constructs.
+// YAMLCompatible reports whether this content is a strict YAML 1.2 subset.
+//
+// The document fence is the only remaining construct a YAML 1.2 parser cannot
+// read. `|` block scalars are ordinary YAML, and `[[[ … ]]]`, which was not,
+// no longer exists.
 func (c *Phase1Counts) YAMLCompatible() bool {
-	return c.LiteralBlocks == 0 && c.Fences == 0
+	return c.Fences == 0
 }
 
-// YAMLCompatibilityPercent is the share of YAML-compatible (Block 1)
-// constructs among all Block 1/2/3 constructs, as a rounded percentage. An
-// empty document is considered 100% compatible.
+// YAMLCompatibilityPercent is the share of YAML-compatible constructs among
+// all constructs, as a rounded percentage. An empty document is considered
+// 100% compatible. Block scalars count as compatible.
 func (c *Phase1Counts) YAMLCompatibilityPercent() uint64 {
-	block1 := c.MappingEntries + c.SequenceItems
-	total := block1 + c.LiteralBlocks + c.Fences
+	compatible := c.MappingEntries + c.SequenceItems + c.LiteralBlocks
+	total := compatible + c.Fences
 	if total == 0 {
 		return 100
 	}
-	return (100*block1 + total/2) / total
+	return (100*compatible + total/2) / total
 }

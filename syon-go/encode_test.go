@@ -27,9 +27,9 @@ func TestMarshalRoundTripItem(t *testing.T) {
 	if !reflect.DeepEqual(in, out) {
 		t.Errorf("round-trip mismatch:\n in=%+v\nout=%+v\n---\n%s", in, out, data)
 	}
-	// The multi-line field must be written as a literal block.
-	if !strings.Contains(string(data), "description: [[[") {
-		t.Errorf("multiline not written as literal:\n%s", data)
+	// The multi-line field must be written as a block scalar.
+	if !strings.Contains(string(data), "description: |") {
+		t.Errorf("multiline not written as a block scalar:\n%s", data)
 	}
 }
 

@@ -43,11 +43,10 @@ abbreviation: SYON
 term: Safe YAML Object Notation
 id: syon-001
 version: 0.9.0
-description: [[[
+description: |
   A human-writable data serialization format that is safe (no implicit
   typing, no executable constructs), simple (a small fixed set of markers),
   and structured (keys, lists, nesting). A member of the ONE family.
-]]]
 contexts:
   - data-formats
   - serialization
@@ -64,10 +63,10 @@ history:
   2026-06-27: v0.9.0 draft published
 ```
 
-Notice how it uses all three SYON block types in one document: plain
-mappings and sequences, a nested mapping (`relationships`), and a
-[literal block](language.md#block-3-literal-escape-hatch) for the
-multi-paragraph `description`.
+Notice the range of Block 1 it uses in one document: plain mappings and
+sequences, a nested mapping (`relationships`), and a
+[block scalar](language.md#block-scalars--verbatim-multi-line-text) for the
+multi-paragraph `description`. All of it is valid YAML 1.2.
 
 ## Try it
 

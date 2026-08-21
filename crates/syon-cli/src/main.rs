@@ -71,13 +71,13 @@ fn to_json(value: &Value, depth: usize) -> String {
 }
 
 // ---------------------------------------------------------------------------
-// `syon phase1` — evaluate Block 1/2/3 usage, complexity, and YAML
-// compatibility across one or more SYON files.
+// `syon phase1` — evaluate block usage, complexity, and YAML compatibility
+// across one or more SYON files.
 //
-// Terminology note: here (matching crates/syon-parser/src/phase1.rs)
-// "block2" means literal blocks (`[[[ ... ]]]`) and "block3" means document
-// fences (```` ``` ````path.format), which is the OPPOSITE of
-// spec/02-grammar.md's Block 2 (fence) / Block 3 (literal) numbering. See
+// The report names its sections rather than numbering them. It used to say
+// "block2"/"block3" with the opposite meaning to spec/02-grammar.md; removing
+// `[[[ ... ]]]` left nothing for the two numberings to disagree about, and
+// self-describing keys keep it that way. See
 // docs/decisions/0006-phase1-block-numbering.syon.
 // ---------------------------------------------------------------------------
 
@@ -181,9 +181,9 @@ fn render_phase1_report(entries: &[(String, Phase1Counts)]) -> String {
         out.push_str(&format!("          colon: {}\n", c.inline_colon));
         out.push_str(&format!("          dash: {}\n", c.inline_dash));
         out.push_str(&format!("          hash: {}\n", c.inline_hash));
-        out.push_str("      block2:\n");
+        out.push_str("      block-scalars:\n");
         out.push_str(&format!("        count: {}\n", c.literal_blocks));
-        out.push_str("      block3:\n");
+        out.push_str("      fences:\n");
         out.push_str(&format!("        count: {}\n", c.fences));
         if !c.fence_formats.is_empty() {
             out.push_str("        formats:\n");
@@ -207,11 +207,7 @@ fn render_phase1_report(entries: &[(String, Phase1Counts)]) -> String {
 
     let files_analyzed = entries.len() as u64;
     let total_complexity: u64 = entries.iter().map(|(_, c)| c.complexity()).sum();
-    let average_complexity = if files_analyzed > 0 {
-        total_complexity / files_analyzed
-    } else {
-        0
-    };
+    let average_complexity = total_complexity.checked_div(files_analyzed).unwrap_or(0);
     let yaml_compatible_files = entries.iter().filter(|(_, c)| c.yaml_compatible()).count() as u64;
     let yaml_incompatible_files = files_analyzed - yaml_compatible_files;
 
@@ -219,13 +215,14 @@ fn render_phase1_report(entries: &[(String, Phase1Counts)]) -> String {
     let sum_sequence: u64 = entries.iter().map(|(_, c)| c.sequence_items).sum();
     let sum_literal: u64 = entries.iter().map(|(_, c)| c.literal_blocks).sum();
     let sum_fences: u64 = entries.iter().map(|(_, c)| c.fences).sum();
-    let block1_total = sum_mapping + sum_sequence;
-    let grand_total = block1_total + sum_literal + sum_fences;
-    let overall_percent = if grand_total == 0 {
-        100
-    } else {
-        (100 * block1_total + grand_total / 2) / grand_total
-    };
+    // Block scalars count as compatible alongside mappings and sequences --
+    // they are ordinary YAML 1.2. Only a fence costs compatibility. Keep this
+    // in step with Phase1Counts::yaml_compatibility_percent.
+    let compatible_total = sum_mapping + sum_sequence + sum_literal;
+    let grand_total = compatible_total + sum_fences;
+    let overall_percent = (100 * compatible_total + grand_total / 2)
+        .checked_div(grand_total)
+        .unwrap_or(100);
 
     out.push_str("  summary:\n");
     out.push_str(&format!("    files-analyzed: {files_analyzed}\n"));

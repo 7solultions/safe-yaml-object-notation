@@ -95,23 +95,6 @@ comment_text = { not_nl* }
 comment = { indent ~ "#" ~ (SP ~ comment_text | &(NEWLINE | EOI)) ~ (NEWLINE | EOI) }
 
 // ---------------------------------------------------------------------------
-// Literal block  [[[  …  ]]]
-// ---------------------------------------------------------------------------
-
-literal_open    = _{ "[[[" ~ NEWLINE }
-// The close delimiter may be indented to match the current nesting level
-// (spec/02-grammar.md: "at the current indent level for nested use").
-literal_close   = _{ " "* ~ "]]]" }
-// raw line: any full line that is not itself a close-delimiter line
-literal_raw_line = { !literal_close ~ not_nl* ~ NEWLINE }
-literal_content  = { literal_raw_line* }
-// Note: literal_node does NOT consume its own trailing NEWLINE/EOI — callers
-// (the top-level `statement` list, or `mapping_entry`/`sequence_item` via
-// `inline_value`) are responsible for that, since consuming it here would
-// double up with their own trailing NEWLINE/EOI when used as an inline value.
-literal_node    = { literal_open ~ literal_content ~ literal_close }
-
-// ---------------------------------------------------------------------------
 // Document fence (Block 2) — triple-backtick, column 0 only
 // ---------------------------------------------------------------------------
 
@@ -126,10 +109,11 @@ fence_close = { "```" ~ (NEWLINE | EOI) }
 // Values (recursive)
 // ---------------------------------------------------------------------------
 
-// A value on the same line as a key or list-item marker.
-// It can be a literal block, a nested block (mapping/sequence started on
-// next line — represented here as empty), or a scalar.
-inline_value = { literal_node | scalar_value }
+// A value on the same line as a key or list-item marker. It is a scalar --
+// which includes a `|` block-scalar header, whose body the Builder takes from
+// the following raw lines. A nested block (mapping/sequence started on the
+// next line) is represented here as empty.
+inline_value = { scalar_value }
 
 // ---------------------------------------------------------------------------
 // Key-value entry
@@ -176,7 +160,6 @@ statement = _{
   | comment
   | mapping_entry
   | sequence_item
-  | (literal_node ~ (NEWLINE | EOI))
   | fence_open
   | fence_close
   | raw_line

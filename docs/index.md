@@ -8,11 +8,12 @@ aliases, and arbitrary tags.
 Only that core record syntax ([Block 1](language.md#block-1-record-yaml-block-style-subset))
 is a strict, safe subset of YAML: every valid Block-1-only SYON document is
 valid YAML, but not every valid YAML document is valid SYON. SYON as a whole
-is **not** a YAML subset, though — it adds two SYON-specific block types with
+is **not** a YAML subset, though — it adds one SYON-specific block type with
 no YAML equivalent: [document fences](language.md#block-2-document-fence)
 for embedding sub-documents of any media type (SYON's alternative to YAML's
-multi-document streams), and [literal blocks](language.md#block-3-literal-escape-hatch)
-for verbatim, uninterpreted content. See [Relationship to YAML](language.md#relationship-to-yaml)
+multi-document streams). Verbatim content uses a
+[block scalar](language.md#block-scalars--verbatim-multi-line-text), which is
+ordinary YAML. See [Relationship to YAML](language.md#relationship-to-yaml)
 for the full picture.
 
 ## Goals

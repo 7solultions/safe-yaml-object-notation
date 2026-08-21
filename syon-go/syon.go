@@ -8,8 +8,10 @@
 //     Unmarshal does that coercion against your struct fields.
 //   - Forbidden YAML constructs are rejected: tags (!x/!!x), anchors/aliases
 //     (&a/*a), flow style ({}/[]), the ?-complex-key marker, and --- doc starts.
-//   - Two SYON-only blocks: a [[[ … ]]] literal (verbatim multi-line text) and a
-//     ```path.format fenced document (embedded content returned verbatim).
+//   - Verbatim multi-line text uses a `|` block scalar, exactly as in YAML.
+//     `>` is accepted as a spelling of `|`; SYON has no folded style.
+//   - One SYON-only block: a ```path.format fenced document (embedded content
+//     returned verbatim).
 //   - Duplicate keys in a mapping are an error.
 //
 // Typical use mirrors gopkg.in/yaml.v3:
@@ -30,7 +32,7 @@ const (
 	ScalarNode   Kind = iota // a string value (SYON does not type scalars)
 	MappingNode              // an ordered key → Node mapping
 	SequenceNode             // an ordered list of Nodes
-	LiteralNode              // verbatim [[[ … ]]] text
+	LiteralNode              // verbatim `|` block-scalar text
 	FenceNode                // an embedded ```path.format document
 )
 
@@ -181,11 +183,9 @@ func (p *parser) parseBlock(minIndent int) (*Node, error) {
 	case strings.HasPrefix(ct, "```") && ind == 0:
 		return p.parseFence()
 	default:
-		// A bare scalar/literal as the whole block value.
+		// A bare scalar as the whole block value. A block scalar always
+		// hangs off a key or a list item, so there is no header case here.
 		p.pos++
-		if strings.HasPrefix(ct, "[[[") {
-			return p.parseLiteral(ind)
-		}
 		return p.scalar(ct, p.pos, ind)
 	}
 }
@@ -228,8 +228,8 @@ func (p *parser) parseMapping(ind int) (*Node, error) {
 			if val == nil && err == nil {
 				val = &Node{Kind: ScalarNode, Line: lineNo}
 			}
-		case strings.HasPrefix(rest, "[[["):
-			val, err = p.parseLiteral(ind)
+		case blockHeaderChomp(rest) != chompNone:
+			val, err = p.parseBlockScalar(ci, blockHeaderChomp(rest))
 		default:
 			val, err = p.scalar(rest, lineNo, colon+1)
 		}
@@ -271,8 +271,8 @@ func (p *parser) parseSequence(ind int) (*Node, error) {
 			if val == nil && err == nil {
 				val = &Node{Kind: ScalarNode, Line: lineNo}
 			}
-		case strings.HasPrefix(rest, "[[["):
-			val, err = p.parseLiteral(ind)
+		case blockHeaderChomp(rest) != chompNone:
+			val, err = p.parseBlockScalar(ci, blockHeaderChomp(rest))
 		default:
 			val, err = p.scalar(rest, lineNo, ci+3)
 		}
@@ -284,22 +284,72 @@ func (p *parser) parseSequence(ind int) (*Node, error) {
 	return s, nil
 }
 
-// parseLiteral reads verbatim lines up to a "]]]" close (the opening "[[[" was
-// on the preceding key/item line, already consumed). Content is dedented by its
-// common leading indentation; surrounding blank lines are trimmed.
-func (p *parser) parseLiteral(_ int) (*Node, error) {
+// chomp is a block scalar's trailing-newline mode.
+type chomp int
+
+const (
+	chompNone  chomp = iota // not a block header at all
+	chompClip               // `|`  -- one trailing newline
+	chompStrip              // `|-` -- no trailing newline
+	chompKeep               // `|+` -- every trailing newline
+)
+
+// blockHeaderChomp reports whether text is a block scalar header, and which
+// chomping mode it carries. `>` is accepted as a spelling of `|`: SYON has no
+// folded style, so YAML written for other tools keeps its meaning rather than
+// silently folding newlines into spaces.
+func blockHeaderChomp(text string) chomp {
+	t := strings.TrimRight(text, " \t")
+	if !strings.HasPrefix(t, "|") && !strings.HasPrefix(t, ">") {
+		return chompNone
+	}
+	switch t[1:] {
+	case "":
+		return chompClip
+	case "-":
+		return chompStrip
+	case "+":
+		return chompKeep
+	}
+	return chompNone
+}
+
+// parseBlockScalar reads the verbatim body of a `|` block scalar. The header
+// was on the preceding key/item line and is already consumed. The body is
+// every following line indented deeper than ownerIndent, dedented by its
+// common leading indentation.
+func (p *parser) parseBlockScalar(ownerIndent int, c chomp) (*Node, error) {
 	start := p.pos
 	var raw []string
 	for p.pos < len(p.lines) {
-		_, ct := p.cur()
-		if ct == "]]]" {
+		line := p.lines[p.pos]
+		if strings.TrimSpace(line) == "" {
+			raw = append(raw, line)
 			p.pos++
-			return &Node{Kind: LiteralNode, Str: dedent(raw), Line: start}, nil
+			continue
 		}
-		raw = append(raw, p.lines[p.pos])
+		if ci, _ := p.cur(); ci <= ownerIndent {
+			break
+		}
+		raw = append(raw, line)
 		p.pos++
 	}
-	return nil, syntax(start, 1, "unterminated [[[ literal block")
+	// Trailing blank lines belong to whatever follows, not to the block.
+	for len(raw) > 0 && strings.TrimSpace(raw[len(raw)-1]) == "" {
+		raw = raw[:len(raw)-1]
+		p.pos--
+	}
+	body := dedent(raw)
+	switch c {
+	case chompStrip:
+		body = strings.TrimRight(body, "\n")
+	case chompKeep, chompClip:
+		// dedent already trims to no trailing newline; clip restores one.
+		if body != "" {
+			body += "\n"
+		}
+	}
+	return &Node{Kind: LiteralNode, Str: body, Line: start}, nil
 }
 
 func (p *parser) parseFence() (*Node, error) {
@@ -384,9 +434,13 @@ func checkForbiddenValue(v string, line, col int) error {
 	case '{':
 		return forbidden(line, col, "flow mappings ({…}) are not allowed in SYON")
 	case '[':
-		if !strings.HasPrefix(v, "[[[") { // [[[ is a literal block, allowed
-			return forbidden(line, col, "flow sequences ([…]) are not allowed in SYON")
+		if strings.HasPrefix(v, "[[[") {
+			// Name the removed construct rather than reporting a generic
+			// flow-sequence error, which would not say what to write instead.
+			return forbidden(line, col,
+				"`[[[ … ]]]` literal blocks were removed; use a `|` block scalar instead")
 		}
+		return forbidden(line, col, "flow sequences ([…]) are not allowed in SYON")
 	case '!':
 		return forbidden(line, col, "tags (!x / !!x) are not allowed in SYON")
 	case '&':

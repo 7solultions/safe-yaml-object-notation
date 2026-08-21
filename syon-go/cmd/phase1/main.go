@@ -1,5 +1,9 @@
-// Command phase1 evaluates Block 1/2/3 usage, complexity, and YAML
-// compatibility across one or more SYON files, writing phase1.report.syon.
+// Command phase1 evaluates block usage, complexity, and YAML compatibility
+// across one or more SYON files, writing phase1.report.syon.
+//
+// The report names its sections rather than numbering them -- see the same
+// note in crates/syon-cli/src/main.rs, whose output this matches byte for
+// byte.
 //
 // Usage (run from within syon-go/, matching `go test`'s own convention):
 //
@@ -119,9 +123,9 @@ func renderReport(reports []fileReport) string {
 		fmt.Fprintf(&b, "          colon: %d\n", c.InlineColon)
 		fmt.Fprintf(&b, "          dash: %d\n", c.InlineDash)
 		fmt.Fprintf(&b, "          hash: %d\n", c.InlineHash)
-		b.WriteString("      block2:\n")
+		b.WriteString("      block-scalars:\n")
 		fmt.Fprintf(&b, "        count: %d\n", c.LiteralBlocks)
-		b.WriteString("      block3:\n")
+		b.WriteString("      fences:\n")
 		fmt.Fprintf(&b, "        count: %d\n", c.Fences)
 		if len(c.FenceFormats) > 0 {
 			b.WriteString("        formats:\n")
@@ -157,11 +161,14 @@ func renderReport(reports []fileReport) string {
 	if filesAnalyzed > 0 {
 		averageComplexity = totalComplexity / filesAnalyzed
 	}
-	block1Total := sumMapping + sumSequence
-	grandTotal := block1Total + sumLiteral + sumFences
+	// Block scalars count as compatible alongside mappings and sequences --
+	// they are ordinary YAML 1.2. Only a fence costs compatibility. Keep this
+	// in step with Phase1Counts.YAMLCompatibilityPercent.
+	compatibleTotal := sumMapping + sumSequence + sumLiteral
+	grandTotal := compatibleTotal + sumFences
 	overallPercent := uint64(100)
 	if grandTotal > 0 {
-		overallPercent = (100*block1Total + grandTotal/2) / grandTotal
+		overallPercent = (100*compatibleTotal + grandTotal/2) / grandTotal
 	}
 
 	b.WriteString("  summary:\n")

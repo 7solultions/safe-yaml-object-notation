@@ -115,22 +115,11 @@ impl ParseOptions {
 }
 
 fn preflight(input: &str) -> Result<(), SyonError> {
-    // Literal block bodies (between a `[[[` opener and its `]]]` closer) are
-    // verbatim, uninterpreted content per spec/02-grammar.md — they must not
-    // be scanned for forbidden constructs.
-    let mut in_literal = false;
     let mut seen_content = false;
 
     for (i, line) in input.lines().enumerate() {
         let ln = i + 1;
         let t = line.trim_start();
-
-        if in_literal {
-            if t.trim_end() == "]]]" {
-                in_literal = false;
-            }
-            continue;
-        }
 
         // A single leading `---` is harmless: it opens the one document this
         // file contains. What SYON forbids is a multi-document stream, so
@@ -157,14 +146,16 @@ fn preflight(input: &str) -> Result<(), SyonError> {
             )));
         }
 
-        // A standalone `[[[` opens a literal block; the body (up to `]]]`)
-        // is skipped above, not scanned as flow collection syntax.
-        if t.trim_end() == "[[[" {
-            in_literal = true;
-            continue;
-        }
-        if t.trim_end() == "]]]" {
-            continue;
+        // `[[[ ... ]]]` was SYON's own literal escape hatch. It is gone: a
+        // `|` block scalar does the same job in syntax a YAML 1.2 parser
+        // already understands. Name it rather than letting `[` fall through
+        // to the generic flow-collection error, which would not say what to
+        // write instead.
+        if t.trim_end() == "[[[" || t.trim_end() == "]]]" {
+            return Err(SyonError::Forbidden(format!(
+                "line {ln}: `[[[ ... ]]]` literal blocks were removed; \
+                 use a `|` block scalar instead"
+            )));
         }
 
         // Indicator characters are NOT scanned here.
@@ -311,7 +302,6 @@ enum Line {
     Comment { indent: usize, text: String },
     KeyValue { indent: usize, key: String, value: Option<LineValue>, trailing: Option<String> },
     ListItem { indent: usize, value: Option<LineValue>, trailing: Option<String> },
-    LiteralBlock { indent: usize, content: String },
     FenceOpen { path: String, format: String },
     FenceClose,
     /// A line matching no structural rule. Valid only as the body of a block
@@ -322,7 +312,6 @@ enum Line {
 #[derive(Debug)]
 enum LineValue {
     Scalar(String),
-    Literal(String),
     /// A `|` (or `>`) header. The content is the following more-indented
     /// lines, which the Builder gathers.
     BlockHeader(Chomp),
@@ -467,14 +456,6 @@ fn collect_lines(
                 line_nos.push(line_no);
             }
 
-            Rule::literal_node => {
-                let line_no = pair.line_col().0;
-                // literal_block at top level (indent 0)
-                let content = extract_literal_content(pair);
-                lines.push(Line::LiteralBlock { indent: 0, content });
-                line_nos.push(line_no);
-            }
-
             Rule::fence_open => {
                 let line_no = pair.line_col().0;
                 let mut path = String::new();
@@ -521,18 +502,12 @@ fn collect_lines(
 
 fn parse_inline_value(pair: Pair<Rule>) -> LineValue {
     for inner in pair.into_inner() {
-        match inner.as_rule() {
-            Rule::literal_node => {
-                return LineValue::Literal(extract_literal_content(inner));
-            }
-            Rule::scalar_value => {
-                let s = extract_scalar(inner);
-                return match block_header(&s) {
-                    Some(chomp) => LineValue::BlockHeader(chomp),
-                    None => LineValue::Scalar(s),
-                };
-            }
-            _ => {}
+        if inner.as_rule() == Rule::scalar_value {
+            let s = extract_scalar(inner);
+            return match block_header(&s) {
+                Some(chomp) => LineValue::BlockHeader(chomp),
+                None => LineValue::Scalar(s),
+            };
         }
     }
     LineValue::Scalar(String::new())
@@ -585,24 +560,6 @@ fn unescape_dq(s: &str) -> String {
     out
 }
 
-fn extract_literal_content(pair: Pair<Rule>) -> String {
-    let mut content = String::new();
-    for inner in pair.into_inner() {
-        if inner.as_rule() == Rule::literal_content {
-            for raw_line in inner.into_inner() {
-                if raw_line.as_rule() == Rule::literal_raw_line {
-                    content.push_str(raw_line.as_str());
-                }
-            }
-        }
-    }
-    // Remove trailing newline added by the grammar
-    if content.ends_with('\n') {
-        content.pop();
-    }
-    content
-}
-
 fn extract_comment_text(pair: Pair<Rule>) -> String {
     for inner in pair.into_inner() {
         if inner.as_rule() == Rule::inline_comment_text {
@@ -643,7 +600,6 @@ impl<'a> Builder<'a> {
             Line::Comment { indent, .. } => *indent,
             Line::KeyValue { indent, .. } => *indent,
             Line::ListItem { indent, .. } => *indent,
-            Line::LiteralBlock { indent, .. } => *indent,
             _ => 0,
         })
     }
@@ -710,6 +666,24 @@ impl<'a> Builder<'a> {
         out
     }
 
+    /// Column at which a compact entry's key starts, for `- key: ...`.
+    ///
+    /// The owner indent of a compact entry's block scalar is the key's column,
+    /// not the list item's: a sibling entry of the same compact mapping aligns
+    /// under the key, and must end the block rather than be swallowed by it.
+    /// Read from the source rather than assumed to be `indent + 2`, since the
+    /// padding after `-` is trimmed before the scalar reaches us.
+    fn compact_key_column(&self, header_line: usize, indent: usize) -> usize {
+        let Some(line) = self.src.get(header_line.wrapping_sub(1)) else {
+            return indent + 2;
+        };
+        // Past the indent and the `-`, then past whatever padding follows it.
+        let Some(after_dash) = line.get(indent + 1..) else {
+            return indent + 2;
+        };
+        indent + 1 + (after_dash.len() - after_dash.trim_start().len())
+    }
+
     /// Fold continuation lines into the preceding plain scalar.
     ///
     /// A continuation carries no marker; it is identified by being indented
@@ -762,26 +736,21 @@ impl<'a> Builder<'a> {
             scan += 1;
         }
         match self.lines.get(scan) {
-            None | Some(Line::FenceOpen { .. }) | Some(Line::FenceClose) => return Ok(None),
+            None | Some(Line::FenceOpen { .. }) | Some(Line::FenceClose) => Ok(None),
             Some(Line::KeyValue { indent, .. }) if *indent == expected_indent => {
-                return Ok(Some(self.parse_mapping(expected_indent)?));
+                Ok(Some(self.parse_mapping(expected_indent)?))
             }
             Some(Line::ListItem { indent, .. }) if *indent == expected_indent => {
-                return Ok(Some(self.parse_sequence(expected_indent)?));
-            }
-            Some(Line::LiteralBlock { indent, content }) if *indent == expected_indent => {
-                let content = content.clone();
-                self.pos = scan + 1;
-                return Ok(Some(Value::LiteralBlock(content)));
+                Ok(Some(self.parse_sequence(expected_indent)?))
             }
             Some(Line::KeyValue { indent, .. }) | Some(Line::ListItem { indent, .. })
                 if *indent != expected_indent =>
             {
                 // Different indent level — not our block
                 let _ = save;
-                return Ok(None);
+                Ok(None)
             }
-            _ => return Ok(None),
+            _ => Ok(None),
         }
     }
 
@@ -810,13 +779,13 @@ impl<'a> Builder<'a> {
                 self.lines.get(self.pos)
             {
                 let key = key.clone();
+                let entry_line = self.line_nos.get(self.pos).copied().unwrap_or(0);
                 let header = match value.as_ref() {
                     Some(LineValue::BlockHeader(c)) => Some(*c),
                     _ => None,
                 };
                 let inline_val = value.as_ref().and_then(|v| match v {
                     LineValue::Scalar(s) => Some(Value::Scalar(s.clone())),
-                    LineValue::Literal(s) => Some(Value::LiteralBlock(s.clone())),
                     LineValue::BlockHeader(_) => None,
                 });
                 let trailing_comment = trailing.clone();
@@ -863,6 +832,7 @@ impl<'a> Builder<'a> {
                 }
 
                 entries.push(MappingEntry {
+                    line: entry_line,
                     key,
                     value,
                     leading_comments,
@@ -891,17 +861,82 @@ impl<'a> Builder<'a> {
             }
 
             if let Some(Line::ListItem { value, trailing, indent: _ }) = self.lines.get(self.pos) {
+                let item_line = self.line_nos.get(self.pos).copied().unwrap_or(0);
                 let header = match value.as_ref() {
                     Some(LineValue::BlockHeader(c)) => Some(*c),
                     _ => None,
                 };
                 let inline_val = value.as_ref().and_then(|v| match v {
                     LineValue::Scalar(s) => Some(Value::Scalar(s.clone())),
-                    LineValue::Literal(s) => Some(Value::LiteralBlock(s.clone())),
                     LineValue::BlockHeader(_) => None,
                 });
                 let trailing_comment = trailing.clone();
                 let header_line = self.line_nos.get(self.pos).copied().unwrap_or(0);
+
+                // `- key: |` -- a compact entry whose value is a block scalar.
+                //
+                // This is decided here, before anything below consumes the
+                // following lines. `take_block_scalar` reads raw source, since
+                // a block scalar's body is verbatim text that must never be
+                // parsed as structure; by the time the compact-mapping arm
+                // further down runs, `take_continuation` has folded those
+                // lines into the scalar and `parse_block` has reshaped them
+                // into a Value. Both are unrecoverable, and neither reports an
+                // error -- `- md: |` used to yield the bare string "|".
+                let compact_block = match value.as_ref() {
+                    Some(LineValue::Scalar(sc)) => split_compact_entry(sc)
+                        .and_then(|(k, v)| block_header(&v).map(|chomp| (k, chomp))),
+                    _ => None,
+                };
+                // Detected whether or not the option is on. With it off the
+                // body would otherwise be folded into the scalar by
+                // `take_continuation` and the `|` left as literal text -- a
+                // silent wrong answer, which is the defect this whole path
+                // exists to remove. Say so instead.
+                if compact_block.is_some() && !self.opts.allow_key_in_line_after_list {
+                    return Err(SyonError::Syntax(format!(
+                        "line {header_line}: a sequence item's `key: |` block scalar needs \
+                         `allow_key_in_line_after_list`; without it, write the `-` on its \
+                         own line and the key beneath it"
+                    )));
+                }
+                if let Some((key, chomp)) = compact_block {
+                    let owner = self.compact_key_column(header_line, indent);
+                    self.pos += 1;
+                    let body = self.take_block_scalar(chomp, owner, header_line);
+                    let mut entries = vec![MappingEntry {
+                        line: item_line,
+                        key,
+                        value: Value::LiteralBlock(body),
+                        leading_comments: Vec::new(),
+                        trailing_comment: None,
+                    }];
+                    // Remaining entries of the same compact mapping, e.g. the
+                    // `vars:` block under `- task: build`.
+                    if let Some(ci) = self.peek_indent() {
+                        if ci > indent && !self.peek_is_fence() {
+                            match self.parse_block(ci)? {
+                                Some(Value::Mapping(rest)) => entries.extend(rest),
+                                Some(_) => {
+                                    return Err(SyonError::Syntax(
+                                        "a sequence item mixes `key: value` with a \
+                                         non-mapping block"
+                                            .into(),
+                                    ))
+                                }
+                                None => {}
+                            }
+                        }
+                    }
+                    items.push(SequenceItem {
+                        line: item_line,
+                        value: Value::Mapping(entries),
+                        leading_comments,
+                        trailing_comment,
+                    });
+                    continue;
+                }
+
                 self.pos += 1;
                 let inline_val = match header {
                     Some(c) => {
@@ -942,6 +977,7 @@ impl<'a> Builder<'a> {
                     {
                         let (key, val) = split_compact_entry(sc).unwrap();
                         let mut entries = vec![MappingEntry {
+                            line: item_line,
                             key,
                             value: Value::Scalar(val),
                             leading_comments: Vec::new(),
@@ -974,6 +1010,7 @@ impl<'a> Builder<'a> {
                 };
 
                 items.push(SequenceItem {
+                    line: item_line,
                     value,
                     leading_comments,
                     trailing_comment,
@@ -994,9 +1031,9 @@ impl<'a> Builder<'a> {
         }
 
         let Some(first_indent) = (match self.lines.get(scan) {
-            Some(Line::KeyValue { indent, .. })
-            | Some(Line::ListItem { indent, .. })
-            | Some(Line::LiteralBlock { indent, .. }) => Some(*indent),
+            Some(Line::KeyValue { indent, .. }) | Some(Line::ListItem { indent, .. }) => {
+                Some(*indent)
+            }
             _ => None,
         }) else {
             return Ok(Value::Mapping(Vec::new()));
@@ -1234,24 +1271,10 @@ mod tests {
     // --- Literal block ---
 
     #[test]
-    fn literal_block_roundtrip() {
-        let input = "[[[\nline one\nline two\n]]]\n";
-        let doc = parse_document(input).unwrap();
-        match &doc.body {
-            Value::LiteralBlock(s) => {
-                assert!(s.contains("line one"), "got: {s:?}");
-                assert!(s.contains("line two"), "got: {s:?}");
-            }
-            other => panic!("expected LiteralBlock, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn inline_literal_block_value_roundtrip() {
-        // `key: [[[` opens a literal block on the same line as the key,
-        // as used by examples/glossary/*.syon — this must not be mistaken
-        // for a forbidden flow-sequence `[`.
-        let input = "description: [[[\n  line one\n  line two\n]]]\n";
+    fn block_scalar_value_roundtrip() {
+        // The `|` block scalar is now the only verbatim-text construct, and
+        // carries what `key: [[[` used to in examples/glossary/*.syon.
+        let input = "description: |\n  line one\n  line two\n";
         let doc = parse_document(input).unwrap();
         match &doc.body {
             Value::Mapping(entries) => {
@@ -1265,6 +1288,17 @@ mod tests {
                 }
             }
             other => panic!("expected Mapping, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn bracketed_literal_block_is_rejected_by_name() {
+        // Removing `[[[` silently would leave `[` to trip the generic
+        // flow-collection error, which does not say what to write instead.
+        for input in ["[[[\nline one\n]]]\n", "description: [[[\n  line one\n  ]]]\n"] {
+            let err = parse_document(input).unwrap_err().to_string();
+            assert!(err.contains("[[["), "got: {err}");
+            assert!(err.contains("block scalar"), "got: {err}");
         }
     }
 
@@ -1551,6 +1585,99 @@ mod tests {
         assert!(err.contains("allow_key_in_line_after_list"), "got: {err}");
     }
 
+    // --- `- key: |` block scalars in compact entries ---
+
+    fn compact(src: &str) -> Vec<MappingEntry> {
+        let opts = ParseOptions { allow_key_in_line_after_list: true, ..Default::default() };
+        let f = parse_with(src, opts).unwrap();
+        let Value::Mapping(e) = f.documents[0].body.clone() else { panic!() };
+        let Value::Sequence(items) = &e[0].value else { panic!("expected a sequence") };
+        let Value::Mapping(entry) = &items[0].value else { panic!("expected a mapping") };
+        entry.clone()
+    }
+
+    /// The same document written with the key on its own line, which has
+    /// always been correct. A compact entry must agree with it.
+    fn expanded(src: &str) -> Vec<MappingEntry> {
+        let f = parse(src).unwrap();
+        let Value::Mapping(e) = f.documents[0].body.clone() else { panic!() };
+        let Value::Sequence(items) = &e[0].value else { panic!("expected a sequence") };
+        let Value::Mapping(entry) = &items[0].value else { panic!("expected a mapping") };
+        entry.clone()
+    }
+
+    #[test]
+    fn a_compact_entry_takes_a_one_line_block_scalar() {
+        let e = compact("cmds:\n  - md: |\n      hello world\n");
+        assert_eq!(e[0].key, "md");
+        assert_eq!(e[0].value, Value::LiteralBlock("hello world\n".into()));
+        assert_eq!(e[0].value, expanded("cmds:\n  -\n    md: |\n      hello world\n")[0].value);
+    }
+
+    #[test]
+    fn a_compact_entry_takes_a_multi_line_block_scalar() {
+        // Previously folded to the single scalar "| hello world".
+        let e = compact("cmds:\n  - md: |\n      hello\n      world\n");
+        assert_eq!(e[0].value, Value::LiteralBlock("hello\nworld\n".into()));
+        assert_eq!(
+            e[0].value,
+            expanded("cmds:\n  -\n    md: |\n      hello\n      world\n")[0].value
+        );
+    }
+
+    #[test]
+    fn a_compact_block_scalar_body_may_begin_with_a_hash() {
+        // The reproduction a naive fix still gets wrong: `# Heading` lexes as
+        // a comment and is discarded, leaving the bare header "|" as the
+        // value. take_block_scalar reads source lines, so it is unaffected.
+        let e = compact("cmds:\n  - md: |\n      # Heading\n      text\n");
+        assert_eq!(e[0].value, Value::LiteralBlock("# Heading\ntext\n".into()));
+        assert_eq!(
+            e[0].value,
+            expanded("cmds:\n  -\n    md: |\n      # Heading\n      text\n")[0].value
+        );
+    }
+
+    #[test]
+    fn a_compact_block_scalar_chomps_like_any_other() {
+        let strip = compact("cmds:\n  - md: |-\n      hello\n");
+        assert_eq!(strip[0].value, Value::LiteralBlock("hello".into()));
+
+        let keep = compact("cmds:\n  - md: |+\n      hello\n\n");
+        assert_eq!(keep[0].value, Value::LiteralBlock("hello\n".into()));
+
+        // `>` is a spelling of `|`, never a folded scalar.
+        let folded = compact("cmds:\n  - md: >\n      hello\n      world\n");
+        assert_eq!(folded[0].value, Value::LiteralBlock("hello\nworld\n".into()));
+    }
+
+    #[test]
+    fn a_sibling_entry_ends_a_compact_block_scalar() {
+        // `sh:` aligns under `md`, so it is the next entry of the same compact
+        // mapping -- not another line of the block.
+        let e = compact("cmds:\n  - md: |\n      hello\n    sh: echo hi\n");
+        let keys: Vec<&str> = e.iter().map(|m| m.key.as_str()).collect();
+        assert_eq!(keys, ["md", "sh"]);
+        assert_eq!(e[0].value, Value::LiteralBlock("hello\n".into()));
+        assert_eq!(e[1].value, Value::Scalar("echo hi".into()));
+    }
+
+    #[test]
+    fn cmd_is_the_same_case_as_md() {
+        // The bug predates `md:`; it was always about `- key: |`.
+        let e = compact("cmds:\n  - cmd: |\n      echo one\n      echo two\n");
+        assert_eq!(e[0].key, "cmd");
+        assert_eq!(e[0].value, Value::LiteralBlock("echo one\necho two\n".into()));
+    }
+
+    #[test]
+    fn a_compact_block_scalar_errors_while_the_option_is_off() {
+        // Without the option the body would be folded into the scalar and the
+        // `|` left as text. An error naming the option beats a wrong value.
+        let err = parse("cmds:\n  - md: |\n      hello\n").unwrap_err().to_string();
+        assert!(err.contains("allow_key_in_line_after_list"), "got: {err}");
+    }
+
     #[test]
     fn only_the_first_colon_space_splits_a_compact_entry() {
         let opts = ParseOptions { allow_key_in_line_after_list: true, ..Default::default() };
@@ -1622,5 +1749,26 @@ mod tests {
         let Value::Sequence(items) = &e[0].value else { panic!() };
         let Value::Mapping(entry) = &items[0].value else { panic!() };
         assert_eq!(entry[0].value, Value::Scalar("build".into()));
+    }
+
+    #[test]
+    fn entries_carry_their_source_line() {
+        // Without a line, "unrecognised field `x`" points at a whole file.
+        let doc = parse_document("a: 1\nb: 2\nc:\n  d: 3\n").unwrap();
+        let Value::Mapping(e) = doc.body else { panic!() };
+        assert_eq!(e[0].line, 1);
+        assert_eq!(e[1].line, 2);
+        assert_eq!(e[2].line, 3);
+        let Value::Mapping(inner) = &e[2].value else { panic!() };
+        assert_eq!(inner[0].line, 4);
+    }
+
+    #[test]
+    fn sequence_items_carry_their_source_line() {
+        let doc = parse_document("items:\n  - a\n  - b\n").unwrap();
+        let Value::Mapping(e) = doc.body else { panic!() };
+        let Value::Sequence(items) = &e[0].value else { panic!() };
+        assert_eq!(items[0].line, 2);
+        assert_eq!(items[1].line, 3);
     }
 }

@@ -33,10 +33,10 @@ architecture-decision-record:
   deciders:
     - felix
   superseded-by: ""
-  context: [[[
+  context: |
     What's the issue we're seeing that motivates this decision?
   ]]]
-  decision: [[[
+  decision: |
     What are we going to do about it?
   ]]]
   consequences:

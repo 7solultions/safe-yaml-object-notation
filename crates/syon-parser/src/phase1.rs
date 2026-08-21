@@ -1,10 +1,11 @@
 //! Phase 1 analysis: evaluate a SYON document's use of each block type and
 //! report a complexity score plus a YAML 1.2 compatibility estimate.
 //!
-//! Terminology note: this module's "block2"/"block3" labels intentionally do
-//! NOT match `spec/02-grammar.md`'s Block 2 (document fence) / Block 3
-//! (literal escape hatch) numbering -- here, block2 is the literal block
-//! (`[[[ ... ]]]`) and block3 is the document fence (` ``` `). See
+//! Terminology note: this module once numbered its own blocks differently
+//! from `spec/02-grammar.md`. That divergence is gone. `[[[ ... ]]]` was
+//! removed from the language, so the only two block types left are Block 1
+//! (records, including `|` block scalars) and Block 2 (the document fence),
+//! numbered the same here as in the grammar. See
 //! `docs/decisions/0006-phase1-block-numbering.syon`.
 
 use crate::ast::{Document, SyonFile, Value};
@@ -19,9 +20,13 @@ pub struct Phase1Counts {
     pub sequence_items: u64,
     /// Structural `# ` usages -- leading + trailing comments.
     pub comments: u64,
-    /// Count of `| ... ` literal blocks (this module's "block2").
+    /// Count of `|` block scalars. Valid YAML 1.2, so these do not cost
+    /// compatibility -- they are counted because they still cost complexity.
     pub literal_blocks: u64,
-    /// Count of ` ---path.format ` document fences (this module's "block3").
+    /// Count of ` ```path.format ` document fences (Block 2).
+    ///
+    /// TODO: split into pure fences (YAML-compatible) and named fences
+    /// (not compatible), the way `[[[` and `|` were split by removing `[[[`.
     pub fences: u64,
     /// Deepest nesting level reached (0 = top-level scalar/empty document).
     pub max_nesting_depth: u64,
@@ -101,8 +106,11 @@ impl Phase1Counts {
     }
 
     /// A simple, documented complexity score. Weights are deliberately
-    /// integers, chosen so the two non-YAML-compatible block types (literal
-    /// blocks, fences) and nesting depth dominate over plain Block 1 usage.
+    /// integers, chosen so the constructs that cost a reader the most --
+    /// block scalars, fences, and nesting depth -- dominate over plain
+    /// mapping and sequence usage. Note this is complexity, not
+    /// compatibility: a `|` block scalar is weighted here but is perfectly
+    /// valid YAML, and `yaml_compatible` ignores it.
     pub fn complexity(&self) -> u64 {
         self.mapping_entries
             + self.sequence_items
@@ -112,23 +120,29 @@ impl Phase1Counts {
             + self.max_nesting_depth * 2
     }
 
-    /// Whether this content uses only Block 1 constructs (and is therefore a
-    /// strict YAML 1.2 subset -- see `docs/decisions/0005-*`).
+    /// Whether this content is a strict YAML 1.2 subset -- see
+    /// `docs/decisions/0005-*`.
+    ///
+    /// The document fence is the only remaining construct a YAML 1.2 parser
+    /// cannot read. `|` block scalars are ordinary YAML, and `[[[ ... ]]]`,
+    /// which was not, no longer exists.
     pub fn yaml_compatible(&self) -> bool {
         self.fences == 0
     }
 
-    /// Share of YAML-compatible (Block 1) constructs among all Block
-    /// 1/2/3 constructs, as an integer percentage. An empty document (no
-    /// constructs at all) is considered 100% compatible.
+    /// Share of YAML-compatible constructs among all constructs, as an
+    /// integer percentage. An empty document (no constructs at all) is
+    /// considered 100% compatible.
+    ///
+    /// Block scalars count as compatible, alongside mappings and sequences:
+    /// a document full of them is readable by a YAML 1.2 parser, and
+    /// reporting it as anything below 100% would be false.
     pub fn yaml_compatibility_percent(&self) -> u64 {
-        let block1 = self.mapping_entries + self.sequence_items;
-        let total = block1 + self.literal_blocks + self.fences;
-        if total == 0 {
-            100
-        } else {
-            (100 * block1 + total / 2) / total // rounded integer percentage
-        }
+        let compatible = self.mapping_entries + self.sequence_items + self.literal_blocks;
+        let total = compatible + self.fences;
+        // Rounded integer percentage. No constructs at all leaves nothing to
+        // be incompatible with, hence the 100.
+        (100 * compatible + total / 2).checked_div(total).unwrap_or(100)
     }
 }
 
@@ -156,13 +170,24 @@ mod tests {
     }
 
     #[test]
-    fn literal_block_reduces_compatibility() {
-        // One mapping entry (Block 1, compatible) whose value is a literal
-        // block (this module's "block2", not compatible) -- a mix, not a
-        // pure literal-block document, hence the 50% split rather than 0%.
-        let c = counts("description: [[[\n  hello\n]]]\n");
+    fn block_scalars_cost_complexity_but_not_compatibility() {
+        // A `|` block scalar is ordinary YAML 1.2, so it must not reduce
+        // compatibility -- it only raises the complexity score. This is the
+        // whole point of removing `[[[ ... ]]]`, which was neither.
+        let c = counts("description: |\n  hello\n");
         assert_eq!(c.mapping_entries, 1);
         assert_eq!(c.literal_blocks, 1);
+        assert!(c.yaml_compatible());
+        assert_eq!(c.yaml_compatibility_percent(), 100);
+        assert!(c.complexity() > counts("description: hello\n").complexity());
+    }
+
+    #[test]
+    fn a_fence_is_the_only_thing_that_costs_compatibility() {
+        // One compatible mapping entry against one fence: a mix, hence the
+        // 50% split rather than 0%.
+        let c = counts("```config/settings.json\nkey: value\n```\n");
+        assert_eq!(c.fences, 1);
         assert!(!c.yaml_compatible());
         assert_eq!(c.yaml_compatibility_percent(), 50);
     }

@@ -19,10 +19,9 @@ type Item struct {
 const itemDoc = `# an item
 id: helm
 name: Helm mit Stirnlampe
-description: [[[
+description: |-
   A robust helm.
   Its lamp flickers.
-]]]
 takeable: true      # trailing comment
 contexts:
   - light
@@ -38,7 +37,7 @@ func TestUnmarshalItem(t *testing.T) {
 		t.Errorf("scalars wrong: %+v", it)
 	}
 	if it.Description != "A robust helm.\nIts lamp flickers." {
-		t.Errorf("literal not dedented/joined: %q", it.Description)
+		t.Errorf("block scalar not dedented/joined: %q", it.Description)
 	}
 	if it.Takeable != true {
 		t.Errorf("bool coercion failed")
@@ -115,7 +114,7 @@ func TestForbiddenAndSyntax(t *testing.T) {
 		{"flow-map", "key: {a: b}\n", "forbidden"},
 		{"tab-indent", "key:\n\tnested: v\n", "syntax"},
 		{"dup-key", "a: 1\na: 2\n", "syntax"},
-		{"unterminated-literal", "d: [[[\nhello\n", "syntax"},
+		{"bracketed-literal-removed", "d: [[[\nhello\n]]]\n", "forbidden"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -135,14 +134,26 @@ func TestForbiddenAndSyntax(t *testing.T) {
 	}
 }
 
-func TestLiteralIsNotFlaggedAsFlow(t *testing.T) {
-	// A [[[ literal starts with '[' but must not trip the flow-sequence check.
+func TestRemovedLiteralBlockIsNamedNotReportedAsFlow(t *testing.T) {
+	// `[[[` starts with '[', so the generic flow-sequence error would fire
+	// and never say what to write instead. It must be named.
 	var v map[string]any
-	if err := syon.Unmarshal([]byte("d: [[[\n  ok\n]]]\n"), &v); err != nil {
-		t.Fatalf("literal misread as flow: %v", err)
+	err := syon.Unmarshal([]byte("d: [[[\n  ok\n]]]\n"), &v)
+	if err == nil {
+		t.Fatal("expected `[[[` to be rejected")
 	}
-	if v["d"] != "ok" {
-		t.Errorf("literal value = %v", v["d"])
+	if !strings.Contains(err.Error(), "block scalar") {
+		t.Errorf("error does not name the replacement: %v", err)
+	}
+}
+
+func TestBlockScalarValue(t *testing.T) {
+	var v map[string]any
+	if err := syon.Unmarshal([]byte("d: |\n  ok\n"), &v); err != nil {
+		t.Fatalf("block scalar rejected: %v", err)
+	}
+	if v["d"] != "ok\n" {
+		t.Errorf("block scalar value = %q, want %q", v["d"], "ok\n")
 	}
 }
 

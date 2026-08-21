@@ -47,9 +47,11 @@ instead of FFI bindings, and other architecturally significant calls.
       sub-documents can be parsed by a plain YAML 1.2 parser instead of
       requiring SYON-specific fence syntax.
       ([#2](https://github.com/object-notation-environment/safe-yaml-object-notation/issues/2))
-- [ ] Add a YAML-compatible mode for Block 3 (literal escape hatch), treating
+- [x] Add a YAML-compatible mode for Block 3 (literal escape hatch), treating
       it as equivalent to a YAML multiline block scalar (`|`) rather than the
-      SYON-specific `[[[`/`]]]` delimiters.
+      SYON-specific `[[[`/`]]]` delimiters. Done, and further: `[[[` was
+      removed outright rather than kept alongside `|`, so there is no mode to
+      choose. See ADR 0007.
       ([#3](https://github.com/object-notation-environment/safe-yaml-object-notation/issues/3))
 
 ## Documentation

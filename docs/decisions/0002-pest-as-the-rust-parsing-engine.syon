@@ -6,7 +6,7 @@ architecture-decision-record:
   deciders:
     - felix
   superseded-by: ""
-  context: [[[
+  context: |
     syon-parser went through three parsing approaches before settling.
     First, winnow: a hand-written combinator parser over the lexer's
     token stream (the initial scaffold). Second, saphyr-parser 0.0.6, a
@@ -23,8 +23,7 @@ architecture-decision-record:
     SYON's structure and spacing rule directly, with an
     indentation-aware builder walking the flat pest output into the
     typed AST.
-    ]]]
-  decision: [[[
+  decision: |
     Use pest as the parsing engine, with SYON's grammar defined natively
     in grammar.pest rather than adapting a general-purpose YAML parser.
     Reusing a YAML parser seemed attractive since Block 1 is a YAML
@@ -33,7 +32,6 @@ architecture-decision-record:
     Block 3 literal blocks) don't map onto YAML's event model cleanly. A
     native PEG grammar can express all three block types and the spacing
     rule directly, without fighting an external parser's assumptions.
-    ]]]
   consequences:
     positive:
       - The grammar is fully owned and auditable in one file (grammar.pest) rather than depending on a YAML parser's interpretation of flow versus block style.

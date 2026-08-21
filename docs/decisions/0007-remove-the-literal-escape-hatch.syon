@@ -1,0 +1,75 @@
+architecture-decision-record:
+  identifier: "0007"
+  title: Remove the literal escape hatch in favour of YAML block scalars
+  status: accepted
+  date: "2026-08-21"
+  deciders:
+    - felix
+  superseded-by: ""
+  context: |
+    SYON had two ways to write verbatim multi-line text. The first was Block
+    3, the literal escape hatch: content delimited by [[[ and ]]] on their own
+    lines. The second was the YAML block scalar, a | header whose body is the
+    following more-indented lines. Both produced the same AST node,
+    Value::LiteralBlock(String).
+
+    Only one of them is valid YAML. ADR 0005 established that a document using
+    a fence or a literal-block delimiter cannot be parsed by a YAML 1.2 parser
+    at all, so those constructs cost the Block 1 compatibility guarantee. A |
+    block scalar costs nothing: it is ordinary YAML.
+
+    Because both spellings collapsed into one AST node, phase1 counted them in
+    one bucket, and the yaml_compatible() predicate could not tell them apart.
+    Commit 1d560c2 dropped that whole bucket from the predicate, which made |
+    report correctly and made [[[ report incorrectly -- a document using the
+    escape hatch was announced as YAML-compatible, contradicting ADR 0005. The
+    phase1::tests::literal_block_reduces_compatibility test had been failing
+    ever since, and was the only thing pointing at the gap. The Go
+    implementation never received the change at all, so syon-go/phase1.go and
+    crates/syon-parser/src/phase1.rs had been disagreeing since that commit --
+    exactly the cross-implementation drift ADR 0004 exists to catch.
+
+    Keeping both spellings meant either splitting the AST node to tell them
+    apart, or leaving the predicate wrong. Neither is worth it for a construct
+    whose only distinguishing feature is that it is not YAML.
+  decision: |
+    Remove [[[ ... ]]] from the language. The | block scalar, already
+    implemented and already the better-behaved of the two, is the single way
+    to write verbatim multi-line text. > remains accepted as a spelling of |;
+    SYON still has no folded style and never folds newlines into spaces.
+
+    Removing it rather than deprecating it keeps one spelling in the corpus
+    and one code path in each implementation. The construct was
+    SYON-specific, so nothing outside this project can be written in it.
+
+    [[[ and ]]] are rejected by name, in both implementations, with an error
+    that names the replacement. Falling through to the generic
+    flow-sequence-not-allowed error would technically reject the input while
+    telling the writer nothing about what to write instead.
+
+    With Block 3 gone, phase1's block numbering no longer diverges from
+    spec/02-grammar.md, and the report keys were renamed from block2/block3 to
+    block-scalars/fences -- self-describing names, so the two numbering
+    schemes ADR 0006 documented have nothing left to disagree about.
+  consequences:
+    positive:
+      - The whole example corpus is now genuinely YAML-1.2-compatible. Both phase1 implementations independently report 8 of 8 files compatible at 100 percent, with identical block counts.
+      - yaml_compatible() is true again to its own documentation. A fence is now the only construct that costs compatibility, which is a claim that can be stated in one sentence and checked in one line of code.
+      - The Rust and Go implementations agree again on the compatibility model, and the Go parser gained | block scalar support, which it did not have at all before this change.
+      - One less SYON-specific construct for a reader coming from YAML to learn, and one less code path in the lexer, the parser, the encoder and the analyzer of each implementation.
+      - The deferred work item in README.md for a YAML-compatible mode for Block 3 (issue #3) is resolved, and more cheaply than a mode would have been - there is no mode to select.
+    negative:
+      - The 6 decision records and 1 glossary entry that used [[[ were rewritten to |. Their parsed values are equivalent apart from one intended difference - the escape hatch preserved each body line's absolute source indentation, whereas a block scalar dedents by the body's common leading indent. Verified equivalent under that normalisation before and after.
+      - AGPL.license.syon was converted too, all 7 blocks, with each body shifted two columns deeper so it sits past the key that owns it. Its license text is byte-identical once indentation and the dropped closers are normalised. The file still does not parse, exactly as it did not before this change: a "date;" typo on line 5, a bare multi-line scalar under summary, and prose continuation lines written at the same indent as their own "- " marker where SYON requires them deeper. None of those involve literal blocks and none are fixed here.
+      - phase1.report.syon changes shape - block2 and block3 became block-scalars and fences. Any consumer reading those keys must be updated. No such consumer is known outside this repository.
+      - The compatibility percentage now counts block scalars in the numerator, so documents using them report higher than they did. This is the correction, not a regression, but archived reports are not comparable with new ones.
+  alternatives-rejected:
+    -
+      name: Split Value::LiteralBlock so phase1 can tell [[[ from | and keep both
+      reason: Restores the invariant but keeps two spellings of one idea, and adds a discriminant threaded through the AST, both implementations, the Python binding and the encoder -- all to preserve a construct whose only distinguishing property is that it is not YAML.
+    -
+      name: Deprecate [[[ with a warning and remove it in a later release
+      reason: The construct is SYON-specific, so the entire population of documents using it is inside this repository and was converted in the same change. A deprecation period protects external users who cannot exist.
+    -
+      name: Leave the predicate as it is and delete the failing test
+      reason: Would have left [[[ reporting as YAML-compatible in direct contradiction of ADR 0005, and deleted the only signal pointing at it.

@@ -20,14 +20,14 @@ being interpreted as octal, etc.).
 | `true` | `Scalar("true")` | Not a boolean |
 | `null` | `Scalar("null")` | Not null |
 | `"hello"` | `Scalar("hello")` | Quotes stripped |
-| `[[[…]]]` | `LiteralBlock(…)` | Verbatim string |
+| `\|` block scalar | `LiteralBlock(…)` | Verbatim string, dedented |
 
 ## Value type hierarchy
 
 ```
 Value
   ├── Scalar(String)           all parsed scalars
-  ├── LiteralBlock(String)     verbatim [[[ … ]]] content
+  ├── LiteralBlock(String)     verbatim `|` block-scalar content
   ├── Mapping(Vec<MappingEntry>)
   │     MappingEntry { key: String, value: Value,
   │                    leading_comments, trailing_comment }
