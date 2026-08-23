@@ -1,0 +1,11 @@
+ADR_01__record_architecture_decission.syon
+ADR_02_pest_as_the_rust_parsing_engine.syon
+ADR_03_preflight_scan_for_forbidden_constructs.syon
+ADR_04_independent_go_implementation.syon
+ADR_05_block_1_only_yaml_compatibility.syon
+ADR_06_phase1_block_numbering.syon
+ADR_07_remove_the_literal_escape_hatch.syon
+ADR_08_parse_error_codes.syon
+ADR_09_split_and_compact_multi_document.syon
+ADR__readme.md
+README.md
