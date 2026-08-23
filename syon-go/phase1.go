@@ -8,7 +8,7 @@ package syon
 // round from spec/02-grammar.md. That divergence is gone -- `[[[ … ]]]` was
 // removed from the language, leaving Block 1 (records, including `|` block
 // scalars) and Block 2 (the document fence), numbered the same in both. See
-// docs/decisions/0006-phase1-block-numbering.syon.
+// design/architecture/0006-phase1-block-numbering.syon.
 //
 // Known cross-implementation gaps versus the Rust analyzer:
 //   - This package's Node does not retain comments in the AST ("future

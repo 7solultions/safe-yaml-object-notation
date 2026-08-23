@@ -164,3 +164,55 @@ def test_error_has_position_info():
     except syon.SyonError as e:
         msg = str(e)
         assert any(c.isdigit() for c in msg)
+
+
+# --- Error codes ---
+
+
+@pytest.mark.parametrize(
+    "src,code",
+    [
+        ("key:\n\tchild: value\n", syon.ErrorCode.TAB_IN_INDENTATION),
+        ("a: 1\n---\nb: 2\n", syon.ErrorCode.DOCUMENT_START_MARKER),
+        ("a: 1\n...\n", syon.ErrorCode.DOCUMENT_END_MARKER),
+        ("? a\n", syon.ErrorCode.COMPLEX_KEY),
+        ("desc: [[[\n  x\n  ]]]\n", syon.ErrorCode.LITERAL_BLOCK_REMOVED),
+        ("```path.json\nkey: value\n", syon.ErrorCode.UNTERMINATED_FENCE),
+        ("key: &anchor\n", syon.ErrorCode.ANCHOR),
+        ("key: *alias\n", syon.ErrorCode.ALIAS),
+        ("key: !!str x\n", syon.ErrorCode.EXPLICIT_TAG),
+        ("a: 1\na: 2\n", syon.ErrorCode.DUPLICATE_KEY),
+    ],
+)
+def test_error_code_is_stable(src, code):
+    """The code is API; the message wording is not.
+
+    Mirrors `error_codes_are_stable` in crates/syon-parser/src/parser.rs and
+    `TestForbiddenAndSyntax` in syon-go/syon_test.go.
+    """
+    with pytest.raises(syon.SyonError) as exc:
+        syon.parse(src)
+    assert exc.value.code == code
+
+
+def test_error_carries_code_kind_and_message():
+    with pytest.raises(syon.SyonError) as exc:
+        syon.parse("```path.json\nkey: value\n")
+    err = exc.value
+    assert err.code == syon.ErrorCode.UNTERMINATED_FENCE
+    assert int(err.code) == 202
+    assert str(err.code) == "SYON-202"
+    assert err.kind == "syntax"
+    assert "unterminated ``` document fence" in err.message
+    # `.message` is the bare text; `str(e)` adds the code and kind.
+    assert str(err).startswith("[SYON-202] syntax error:")
+
+
+def test_forbidden_and_syntax_kinds_are_distinguished():
+    with pytest.raises(syon.SyonError) as forbidden:
+        syon.parse("key: &anchor\n")
+    assert forbidden.value.kind == "forbidden"
+
+    with pytest.raises(syon.SyonError) as syntax:
+        syon.parse("a: 1\na: 2\n")
+    assert syntax.value.kind == "syntax"

@@ -73,7 +73,7 @@ Only a fence costs YAML compatibility. A `|` block scalar is ordinary YAML
 estimate.
 
 With no file arguments, it walks the default corpus: `examples/**/*.syon`
-and `docs/decisions/*.syon`.
+and `design/architecture/*.syon`.
 
 ```bash
 task phase1-report          # Rust — writes ./phase1.report.syon

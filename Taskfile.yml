@@ -66,21 +66,22 @@ tasks:
     cmds:
       - cargo build -p syon-parser --release
 
-  docs-sync-spec:
-    desc: Copy spec/ into docs/spec/ so the Zensical site can include it
+  docs-sync:
+    desc: Copy spec/ and design/architecture/ into docs/ so the Zensical site can include them
     cmds:
-      - mkdir -p docs/spec
+      - mkdir -p docs/spec docs/decisions
       - cp spec/*.md docs/spec/
+      - cp design/architecture/README.md design/architecture/*.syon docs/decisions/
 
   docs-build:
     desc: Build the Zensical documentation site into site/ (requires `pip install zensical`)
-    deps: [docs-sync-spec]
+    deps: [docs-sync]
     cmds:
       - zensical build
 
   docs-serve:
     desc: Serve the Zensical documentation site locally with live reload (requires `pip install zensical`)
-    deps: [docs-sync-spec]
+    deps: [docs-sync]
     cmds:
       - zensical serve
 

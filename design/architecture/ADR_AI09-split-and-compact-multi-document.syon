@@ -1,0 +1,169 @@
+architecture-decision-record:
+  identifier: "0009"
+  title: Split and compact subcommands for multi-document files
+  status: proposed
+  date: "2026-08-23"
+  deciders:
+    - felix
+  superseded-by: ""
+  context: |
+    A SYON file can hold more than one document. Block 2 fences carry a
+    path.format info string precisely so an embedded document can say where
+    it belongs and what it is, and the AST already models the result as
+    SyonFile.documents, a vector of Document with path, format and body.
+
+    Nothing consumes that. There is no way to turn a multi-document file into
+    the tree of files it describes, and no way to gather a tree back into one
+    file. The glossary corpus under examples/ is a directory of separate
+    .syon files precisely because the alternative does not exist yet. The
+    obvious pair of operations is split, which writes each embedded document
+    to its own path, and compact, which walks a directory and emits a single
+    multi-document file.
+
+    Auditing the current implementations against that goal found four gaps.
+    All of them are load-bearing, and none is visible from the AST alone.
+
+    First, the Rust parser parses fence bodies as SYON. The spec does not:
+    spec/03-semantics.md states that the parser does NOT parse embedded
+    content and returns it as a raw string, and Document.body is typed as a
+    parsed Value, which cannot hold one. A fence declaring .json and holding
+    real JSON is rejected outright with SYON-003. Splitting such a fence back
+    out to a .json file is therefore impossible today, and this is the whole
+    point of the format field. ADR 0006 recorded this as a known open gap.
+
+    Second, the Go parser keeps fence bodies raw, conforming to the spec, but
+    accepts only one fence per file. A second fence is rejected with
+    SYON-003. So one implementation supports many documents with bodies it
+    should not be reading, and the other reads bodies correctly but supports
+    one document.
+
+    Third, the two implementations disagree on how to split the info string.
+    Go takes the last dot, matching the spec's statement that the part after
+    the last dot is the format. The Rust grammar's path_char excludes dots,
+    so it takes the first. For an info string of a.b.json, Go yields path a.b
+    and format json, Rust yields path a and format b.json. Those reconstruct
+    to different filenames, so a round trip through split would not be
+    stable across implementations.
+
+    Fourth, the CLI can only ever show the first document. Given a file with
+    two fences it prints one and silently drops the rest, so there is no way
+    to observe the multi-document behaviour that already exists.
+
+    A fifth finding pointed the same way and was small enough to fix while
+    writing this record, so it is no longer outstanding. A --- inside a |
+    block scalar body was rejected with SYON-117, although the body is
+    verbatim text and the marker is content; a -- or a ---- in the same
+    place was kept, correctly, and syon-go accepted all three. The preflight
+    scan was giving marker-like text structural meaning in a place where it
+    has none, which is the exact mistake a splitter would repeat if it went
+    looking for boundaries itself. It now tracks block scalar extents the
+    way it tracks fences, and both implementations agree.
+
+    There is also a safety question with no current answer. A fence path is
+    attacker-controlled text inside a data file. A split that writes to it
+    naively is a directory traversal primitive, which is a poor thing to
+    build into a format whose name begins with Safe.
+  decision: |
+    Add two subcommands, syon split and syon compact, as inverse operations
+    over the document set, and fix the four gaps above as prerequisites
+    rather than working around them.
+
+    syon split FILE writes each document to its path, rooted at a target
+    directory given by an option and defaulting to the current directory.
+    syon compact DIR walks that directory and emits one multi-document file.
+    The contract is on the document set, not on bytes: compact after split
+    reproduces the same documents with the same paths, formats and bodies.
+    Byte-identical output for the host document is not promised, because
+    comment placement and blank lines are not fully recoverable.
+
+    Fence bodies are carried verbatim in both directions. Split writes the
+    bytes the fence held. Compact embeds the bytes the file held. Neither
+    converts anything: a format of json is a label on the content, not an
+    instruction to serialise SYON into JSON, and compact does not parse the
+    file it embeds. This keeps split and compact total over any embedded
+    content, including formats SYON knows nothing about.
+
+    Split may run a level 0 check, a shallow scan that looks for text
+    resembling a document boundary without being one and reports what it
+    finds. The check is advisory in the strict sense: it never changes which
+    documents are produced, never changes their content, and never changes
+    the exit status. It writes a warning, and the split proceeds exactly as
+    it would have without it.
+
+    Only a well-formed fence pair opens and closes a document. A line of --
+    or ---- resembles a separator and is not one, so it never becomes a file
+    of its own. It stays verbatim in the document that contains it, which is
+    the one that began before it. The same holds for a --- or a ... sitting
+    inside a raw fence body, where the surrounding content is not SYON at
+    all and those bytes carry no SYON meaning, and for any of them inside a
+    block scalar body, which the fifth finding above already settled at the
+    parser level. The check exists so an author
+    who typed one dash too few hears about it, not so the splitter can guess
+    what they meant.
+
+    A file may hold at most one unfenced document, the host. Split writes it
+    to a reserved name in the target directory, and compact reads that name
+    back as the host rather than treating it as one more embedded file, so
+    the host survives the round trip instead of being dropped or demoted.
+
+    Fence paths are untrusted input and are validated before anything is
+    written, rejecting rather than sanitising, consistent with how the
+    forbidden set is handled elsewhere. A path is rejected when it is
+    absolute, when any segment is a parent reference, when it normalises to
+    a location outside the target directory, when a component on the way to
+    it is a symbolic link, or when it is empty. An anonymous document has no
+    location to be written to and is an error under split rather than
+    something to invent a name for. Each rejection gets its own code in the
+    2xx fence band defined by ADR 0008.
+
+    The prerequisites, in order:
+
+    Document.body gains the ability to hold raw bytes, so a fence body is
+    returned unparsed as spec/03-semantics.md already specifies, and the
+    Rust parser stops parsing fence content. This is the change that makes a
+    non-SYON fence representable at all.
+
+    The Go parser accepts any number of fences per file.
+
+    The Rust grammar splits the info string at the last dot, matching Go and
+    the spec. This is a behaviour change for any info string containing more
+    than one dot.
+
+    The CLI gains a way to address documents beyond the first, so the
+    multi-document model is observable without writing files.
+
+    One question is deliberately left open: whether compact should refuse to
+    embed a file it cannot read as valid content for its declared format.
+    Refusing would make compact a validator, accepting keeps it total, and
+    the argument depends on use cases that do not exist yet.
+  consequences:
+    positive:
+      - The path and format fields finally do something. They have been carried through the grammar, the AST and both implementations without a consumer, which is why the divergences between implementations went unnoticed for so long.
+      - Splitting forces fence bodies to be raw, which is what the spec always said and what the Go implementation always did. The conformance gap gets closed by a feature that cannot work without it, rather than by a cleanup nobody schedules.
+      - A corpus like examples/glossary can be distributed as one file and worked on as a tree, or the reverse, without a bespoke script on either side.
+      - Keeping the level 0 check advisory means the tree split produces is a function of the fence structure alone, so it can be reasoned about without knowing which heuristics fired. A warning that could move a byte from one output file to another would be a parser, not a warning.
+      - Path validation gives the fence a documented threat model. Writing files from a data format is where a safe subset earns its name, and the rules are stated once rather than reinvented per caller.
+    negative:
+      - Changing the info-string split to the last dot is a breaking change for any document whose path contains a dot. Nothing in this repository relies on the current Rust behaviour, but the grammar is published.
+      - Raw fence bodies change Document.body's type, which is a breaking API change for every consumer of the Rust AST, including the Python bindings and the FFI surface.
+      - Compact must decide a traversal order for the directory, and that order is part of the output. Sorted by path is the only defensible choice, but it means a compacted file does not preserve the order documents had before a split.
+      - Two more subcommands is two more surfaces to keep in step across implementations, and ADR 0004 chose independent implementations knowing that cost.
+  alternatives-rejected:
+    -
+      name: Convert content on the way through, honouring the format field
+      reason: Rejected because it makes split lossy and compact partial. A fence declaring toml would need a TOML serialiser to write and a TOML parser to read back, so every format in the wild becomes a dependency, and any format SYON lacks a codec for becomes unsplittable. Carrying bytes verbatim is total and needs nothing.
+    -
+      name: Sanitise unsafe fence paths rather than rejecting them
+      reason: Rejected for the same reason the forbidden set rejects rather than rewrites. Silently turning a parent reference into something safe means the file on disk no longer matches the document that described it, and the round-trip contract is the first casualty.
+    -
+      name: Provide a library API only, with no CLI subcommands
+      reason: Rejected because the multi-document model is currently unobservable, and that is a large part of why its implementations drifted apart. A subcommand is what makes the behaviour testable from the corpus in CI, the way examples-valid already tests parsing.
+    -
+      name: Use YAML's own multi-document markers instead of fences
+      reason: Rejected because the marker forms are in the forbidden set. ADR 0005 established that a document using a fence is not YAML-parseable anyway, so the fence is already the SYON-only mechanism for this, and adding a second one would mean two answers to the same question.
+    -
+      name: Let the level 0 check fail the split, or treat a marker-like line as a boundary
+      reason: Rejected because it makes the output depend on a heuristic. A file either has fences or it does not, and a splitter that sometimes split on -- would produce a different tree than the parser's own document set, which is what the round-trip contract is stated over. A warning that changes behaviour is not a warning, and a check that can reject is a second, weaker validator competing with the parser.
+    -
+      name: Drop the unfenced host document on split
+      reason: Rejected because the host is where a real corpus keeps the mapping that gives the embedded documents meaning. Losing it on every round trip would make split useful only for files that happen not to have one.

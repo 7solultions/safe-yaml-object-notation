@@ -105,16 +105,18 @@ func TestNoImplicitTyping(t *testing.T) {
 func TestForbiddenAndSyntax(t *testing.T) {
 	cases := []struct {
 		name, src, kind string
+		code            syon.ErrorCode
 	}{
-		{"doc-start", "---\nkey: v\n", "forbidden"},
-		{"anchor", "key: &a value\n", "forbidden"},
-		{"alias", "key: *a\n", "forbidden"},
-		{"tag", "key: !!str x\n", "forbidden"},
-		{"flow-seq", "key: [1, 2]\n", "forbidden"},
-		{"flow-map", "key: {a: b}\n", "forbidden"},
-		{"tab-indent", "key:\n\tnested: v\n", "syntax"},
-		{"dup-key", "a: 1\na: 2\n", "syntax"},
-		{"bracketed-literal-removed", "d: [[[\nhello\n]]]\n", "forbidden"},
+		{"doc-start", "---\nkey: v\n", "forbidden", syon.CodeDocumentStartMarker},
+		{"anchor", "key: &a value\n", "forbidden", syon.CodeAnchor},
+		{"alias", "key: *a\n", "forbidden", syon.CodeAlias},
+		{"tag", "key: !!str x\n", "forbidden", syon.CodeExplicitTag},
+		{"flow-seq", "key: [1, 2]\n", "forbidden", syon.CodeFlowSequence},
+		{"flow-map", "key: {a: b}\n", "forbidden", syon.CodeFlowMapping},
+		{"tab-indent", "key:\n\tnested: v\n", "syntax", syon.CodeTabInIndentation},
+		{"dup-key", "a: 1\na: 2\n", "syntax", syon.CodeDuplicateKey},
+		{"bracketed-literal-removed", "d: [[[\nhello\n]]]\n", "forbidden", syon.CodeLiteralBlockRemoved},
+		{"unterminated-fence", "```path.json\nkey: value\n", "syntax", syon.CodeUnterminatedFence},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -130,6 +132,12 @@ func TestForbiddenAndSyntax(t *testing.T) {
 			if se.Kind != c.kind {
 				t.Errorf("kind = %q, want %q (%v)", se.Kind, c.kind, se)
 			}
+			// The code is API; the message wording is not. Renumbering one
+			// silently would break callers matching on it, so pin it here as
+			// well as in spec/05-error-codes.md.
+			if se.Code != c.code {
+				t.Errorf("code = %v, want %v (%v)", se.Code, c.code, se)
+			}
 		})
 	}
 }
@@ -144,6 +152,25 @@ func TestRemovedLiteralBlockIsNamedNotReportedAsFlow(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "block scalar") {
 		t.Errorf("error does not name the replacement: %v", err)
+	}
+}
+
+// Parity with the Rust `markers_inside_a_block_scalar_body_are_content` test:
+// a block scalar body is verbatim, so a marker written there is content. Go
+// always read it this way; the Rust preflight scan had to be fixed to agree.
+func TestMarkersInsideBlockScalarBodyAreContent(t *testing.T) {
+	for _, marker := range []string{"--", "---", "----", "...", "?", "[[[", "]]]"} {
+		t.Run(marker, func(t *testing.T) {
+			src := "note: |\n  before\n  " + marker + "\n  after\n"
+			var v map[string]any
+			if err := syon.Unmarshal([]byte(src), &v); err != nil {
+				t.Fatalf("%q in a block body was rejected: %v", marker, err)
+			}
+			want := "before\n" + marker + "\nafter\n"
+			if v["note"] != want {
+				t.Errorf("note = %q, want %q", v["note"], want)
+			}
+		})
 	}
 }
 

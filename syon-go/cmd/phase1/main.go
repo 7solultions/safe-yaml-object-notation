@@ -10,8 +10,8 @@
 //	go run ./cmd/phase1 [FILE...]
 //
 // With no file arguments, it walks the default corpus: ../examples/**/*.syon
-// and ../docs/decisions/*.syon -- the repo root's examples/ and
-// docs/decisions/, one level up from the syon-go module.
+// and ../design/architecture/*.syon -- the repo root's examples/ and
+// design/architecture/, one level up from the syon-go module.
 package main
 
 import (
@@ -41,7 +41,7 @@ func main() {
 	}
 
 	if len(paths) == 0 {
-		fmt.Fprintln(os.Stderr, "phase1: no .syon files found to analyze (pass file paths explicitly, or run from a directory containing examples/ or docs/decisions/)")
+		fmt.Fprintln(os.Stderr, "phase1: no .syon files found to analyze (pass file paths explicitly, or run from a directory containing examples/ or design/architecture/)")
 		os.Exit(1)
 	}
 
@@ -75,7 +75,7 @@ func defaultCorpus() []string {
 	var out []string
 	for _, root := range []string{
 		filepath.Join("..", "examples"),
-		filepath.Join("..", "docs", "decisions"),
+		filepath.Join("..", "design", "architecture"),
 	} {
 		_ = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 			if err != nil || d == nil {

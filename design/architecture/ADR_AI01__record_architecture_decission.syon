@@ -17,7 +17,7 @@ architecture-decision-record:
     reasoning from scratch, or risked re-litigating settled trade-offs.
   decision: |
     Record architecturally significant decisions as Architecture Decision
-    Records (ADRs) in docs/decisions/, each one a standalone SYON document
+    Records (ADRs) in design/architecture/, each one a standalone SYON document
     following this schema: identifier, title, status, date, deciders,
     superseded-by, context, decision, consequences (positive/negative),
     and alternatives-rejected. Writing ADRs as SYON documents rather than

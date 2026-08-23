@@ -6,6 +6,7 @@ on:
     paths:
       - "docs/**"
       - "spec/**"
+      - "design/**"
       - "zensical.toml"
       - ".github/workflows/docs.yml"
   workflow_dispatch:
@@ -34,10 +35,11 @@ jobs:
       - name: Install Zensical
         run: pip install zensical
 
-      - name: Sync spec/ into docs/spec/
+      - name: Sync spec/ and design/architecture/ into docs/
         run: |
-          mkdir -p docs/spec
+          mkdir -p docs/spec docs/decisions
           cp spec/*.md docs/spec/
+          cp design/architecture/README.md design/architecture/*.syon docs/decisions/
 
       - name: Build site
         run: zensical build

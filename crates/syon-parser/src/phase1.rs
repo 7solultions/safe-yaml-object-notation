@@ -6,7 +6,7 @@
 //! removed from the language, so the only two block types left are Block 1
 //! (records, including `|` block scalars) and Block 2 (the document fence),
 //! numbered the same here as in the grammar. See
-//! `docs/decisions/0006-phase1-block-numbering.syon`.
+//! `design/architecture/0006-phase1-block-numbering.syon`.
 
 use crate::ast::{Document, SyonFile, Value};
 
@@ -121,7 +121,7 @@ impl Phase1Counts {
     }
 
     /// Whether this content is a strict YAML 1.2 subset -- see
-    /// `docs/decisions/0005-*`.
+    /// `design/architecture/0005-*`.
     ///
     /// The document fence is the only remaining construct a YAML 1.2 parser
     /// cannot read. `|` block scalars are ordinary YAML, and `[[[ ... ]]]`,

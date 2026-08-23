@@ -51,7 +51,7 @@ The parser returns the body as a `LiteralBlock(String)` value node.
 The reference Rust implementation (`crates/syon-parser`) uses a native PEG
 grammar (pest) encoding this structure and the spacing rule directly, paired
 with a preflight text scan that rejects the forbidden construct set ahead of
-grammar-based parsing — see ADR 0002 and ADR 0003 in `docs/decisions/` for
+grammar-based parsing — see ADR 0002 and ADR 0003 in `design/architecture/` for
 why. An earlier revision of this spec recommended filtering a YAML 1.2 event
 stream (e.g. `saphyr-parser`); that approach was tried and abandoned because
 YAML event streams don't carry block-vs-flow style information, among other

@@ -51,14 +51,14 @@ func decode(n *Node, rv reflect.Value) error {
 		case "false":
 			rv.SetBool(false)
 		default:
-			return &Error{n.Line, 1, "syntax", fmt.Sprintf("cannot use %q as bool (want true/false)", s)}
+			return &Error{n.Line, 1, "syntax", CodeDecodeTypeMismatch, fmt.Sprintf("cannot use %q as bool (want true/false)", s)}
 		}
 		return nil
 
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 		i, err := strconv.ParseInt(scalarStr(n), 10, 64)
 		if err != nil {
-			return &Error{n.Line, 1, "syntax", fmt.Sprintf("cannot use %q as integer", scalarStr(n))}
+			return &Error{n.Line, 1, "syntax", CodeDecodeTypeMismatch, fmt.Sprintf("cannot use %q as integer", scalarStr(n))}
 		}
 		rv.SetInt(i)
 		return nil
@@ -66,7 +66,7 @@ func decode(n *Node, rv reflect.Value) error {
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
 		u, err := strconv.ParseUint(scalarStr(n), 10, 64)
 		if err != nil {
-			return &Error{n.Line, 1, "syntax", fmt.Sprintf("cannot use %q as unsigned integer", scalarStr(n))}
+			return &Error{n.Line, 1, "syntax", CodeDecodeTypeMismatch, fmt.Sprintf("cannot use %q as unsigned integer", scalarStr(n))}
 		}
 		rv.SetUint(u)
 		return nil
@@ -74,7 +74,7 @@ func decode(n *Node, rv reflect.Value) error {
 	case reflect.Float32, reflect.Float64:
 		f, err := strconv.ParseFloat(scalarStr(n), 64)
 		if err != nil {
-			return &Error{n.Line, 1, "syntax", fmt.Sprintf("cannot use %q as float", scalarStr(n))}
+			return &Error{n.Line, 1, "syntax", CodeDecodeTypeMismatch, fmt.Sprintf("cannot use %q as float", scalarStr(n))}
 		}
 		rv.SetFloat(f)
 		return nil
@@ -85,7 +85,7 @@ func decode(n *Node, rv reflect.Value) error {
 			return nil
 		}
 		if n.Kind != SequenceNode {
-			return &Error{n.Line, 1, "syntax", "expected a sequence"}
+			return &Error{n.Line, 1, "syntax", CodeDecodeShapeMismatch, "expected a sequence"}
 		}
 		s := reflect.MakeSlice(rv.Type(), len(n.Seq), len(n.Seq))
 		for i, item := range n.Seq {
@@ -102,7 +102,7 @@ func decode(n *Node, rv reflect.Value) error {
 			return nil
 		}
 		if n.Kind != MappingNode {
-			return &Error{n.Line, 1, "syntax", "expected a mapping"}
+			return &Error{n.Line, 1, "syntax", CodeDecodeShapeMismatch, "expected a mapping"}
 		}
 		m := reflect.MakeMapWithSize(rv.Type(), len(n.Keys))
 		for _, k := range n.Keys {
@@ -117,7 +117,7 @@ func decode(n *Node, rv reflect.Value) error {
 
 	case reflect.Struct:
 		if n.Kind != MappingNode {
-			return &Error{n.Line, 1, "syntax", "expected a mapping"}
+			return &Error{n.Line, 1, "syntax", CodeDecodeShapeMismatch, "expected a mapping"}
 		}
 		return decodeStruct(n, rv)
 	}

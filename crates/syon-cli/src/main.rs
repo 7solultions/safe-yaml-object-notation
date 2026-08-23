@@ -78,7 +78,7 @@ fn to_json(value: &Value, depth: usize) -> String {
 // "block2"/"block3" with the opposite meaning to spec/02-grammar.md; removing
 // `[[[ ... ]]]` left nothing for the two numberings to disagree about, and
 // self-describing keys keep it that way. See
-// docs/decisions/0006-phase1-block-numbering.syon.
+// design/architecture/0006-phase1-block-numbering.syon.
 // ---------------------------------------------------------------------------
 
 fn run_phase1(file_args: &[String]) {
@@ -89,7 +89,7 @@ fn run_phase1(file_args: &[String]) {
     };
 
     if files.is_empty() {
-        eprintln!("phase1: no .syon files found to analyze (pass file paths explicitly, or run from a directory containing examples/ or docs/decisions/)");
+        eprintln!("phase1: no .syon files found to analyze (pass file paths explicitly, or run from a directory containing examples/ or design/architecture/)");
         process::exit(1);
     }
 
@@ -124,7 +124,7 @@ fn run_phase1(file_args: &[String]) {
 fn default_phase1_corpus() -> Vec<PathBuf> {
     let mut files = Vec::new();
     collect_syon_files(Path::new("examples"), &mut files);
-    collect_syon_files(Path::new("docs/decisions"), &mut files);
+    collect_syon_files(Path::new("design/architecture"), &mut files);
     files.sort();
     files
 }

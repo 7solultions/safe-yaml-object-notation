@@ -49,5 +49,33 @@ first document, converted to native Python types:
 As with the [Rust API](language.md#strings-only-boundary), every scalar comes
 back as a `str` — SYON does not guess that `"30"` should be an `int`.
 
-On a parse error, `syon.parse` raises `ValueError` with the underlying
-`SyonError` message.
+## Errors
+
+On a parse error, `syon.parse` raises `syon.SyonError`, an `Exception`
+subclass carrying the failure in three parts:
+
+```python
+try:
+    syon.parse("```path.json\nkey: value\n")
+except syon.SyonError as e:
+    e.code      # <ErrorCode.UNTERMINATED_FENCE: 202>
+    int(e.code) # 202
+    e.kind      # "syntax"  (or "forbidden")
+    e.message   # 'line 1: unterminated ``` document fence'
+    str(e)      # '[SYON-202] syntax error: line 1: unterminated ``` document fence'
+```
+
+Match on `e.code` rather than on the message text — the code is stable API and
+the wording is not. The constants live on `syon.ErrorCode`:
+
+```python
+if e.code == syon.ErrorCode.DUPLICATE_KEY:
+    ...
+```
+
+`kind` keeps the `forbidden` / `syntax` distinction from the [error
+model](https://github.com/object-notation-environment/safe-yaml-object-notation/blob/main/spec/03-semantics.md):
+`forbidden` means SYON rejected a YAML construct on purpose, `syntax` means
+the input was malformed. See
+[`spec/05-error-codes.md`](https://github.com/object-notation-environment/safe-yaml-object-notation/blob/main/spec/05-error-codes.md)
+for the full code table.

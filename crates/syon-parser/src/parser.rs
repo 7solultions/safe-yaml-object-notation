@@ -3,6 +3,7 @@ use pest_derive::Parser;
 
 use crate::ast::{Document, MappingEntry, SequenceItem, SyonFile, Value};
 use crate::error::SyonError;
+use crate::error_code::ErrorCode;
 
 #[derive(Parser)]
 #[grammar = "src/grammar.pest"]
@@ -114,8 +115,36 @@ impl ParseOptions {
     }
 }
 
+/// Indentation of a `|` block scalar header line, if this line is one.
+///
+/// Preflight runs before the grammar, so it has to recognise a header
+/// textually. The token must be the whole value, matching what
+/// [`block_header`] accepts once the grammar has split the line: `cmd: echo a |`
+/// is a scalar that happens to end in a pipe, not a header.
+fn block_header_line(line: &str) -> Option<usize> {
+    let t = line.trim_end();
+    let before = ["|-", "|+", ">-", ">+", "|", ">"]
+        .iter()
+        .find_map(|tok| t.strip_suffix(tok))?;
+    // The token is the whole value: it either stands alone on the line, or
+    // follows a `: ` or `- ` operator.
+    let is_value =
+        before.trim_start().is_empty() || before.ends_with(": ") || before.ends_with("- ");
+    is_value.then(|| line.len() - line.trim_start().len())
+}
+
 fn preflight(input: &str) -> Result<(), SyonError> {
     let mut seen_content = false;
+    // Line number of the currently-open ``` fence, if any. Tracked here
+    // rather than in the grammar because `fence_open` and `fence_close` are
+    // independent rules -- pest will happily match an open with no close, and
+    // the builder then treats the rest of the file as that document's body.
+    let mut open_fence: Option<usize> = None;
+    // Indent of the `|` block scalar header whose body we are inside, if any.
+    // A body is verbatim text: `---` there is three dashes the author wrote,
+    // not a document marker, and giving it structural meaning rejects valid
+    // documents. syon-go already reads it that way.
+    let mut block_indent: Option<usize> = None;
 
     for (i, line) in input.lines().enumerate() {
         let ln = i + 1;
@@ -123,9 +152,25 @@ fn preflight(input: &str) -> Result<(), SyonError> {
 
         // Tabs anywhere in the leading whitespace are forbidden (SYON uses spaces only).
         if line.chars().take_while(|c| c.is_whitespace()).any(|c| c == '\t') {
-            return Err(SyonError::Syntax(format!(
-                "line {ln}: tab character in indentation is not allowed in SYON (use spaces)"
-            )));
+            return Err(SyonError::syntax(
+                ErrorCode::TabInIndentation,
+                format!("line {ln}: tab character in indentation is not allowed in SYON (use spaces)"),
+            ));
+        }
+
+        // Inside a block scalar body nothing below applies -- the body is
+        // content. The body runs to the first non-blank line indented no
+        // further than the header; blank lines never end it.
+        if let Some(header_indent) = block_indent {
+            if t.is_empty() || line.len() - t.len() > header_indent {
+                continue;
+            }
+            block_indent = None;
+        }
+        // Set for the lines that follow: the header line itself is still
+        // structure, and falls through to the checks below.
+        if let Some(indent) = block_header_line(line) {
+            block_indent = Some(indent);
         }
 
         // A single leading `---` is harmless: it opens the one document this
@@ -133,9 +178,10 @@ fn preflight(input: &str) -> Result<(), SyonError> {
         // only a marker after content has begun is an error.
         if t == "---" || t.starts_with("--- ") || t.starts_with("---\t") {
             if seen_content {
-                return Err(SyonError::Forbidden(format!(
-                    "line {ln}: `---` starts a second document; SYON files hold exactly one"
-                )));
+                return Err(SyonError::forbidden(
+                    ErrorCode::DocumentStartMarker,
+                    format!("line {ln}: `---` starts a second document; SYON files hold exactly one"),
+                ));
             }
             continue;
         }
@@ -143,14 +189,29 @@ fn preflight(input: &str) -> Result<(), SyonError> {
             seen_content = true;
         }
         if t == "..." || t.starts_with("... ") {
-            return Err(SyonError::Forbidden(format!(
-                "line {ln}: `...` document-end marker is not allowed in SYON"
-            )));
+            return Err(SyonError::forbidden(
+                ErrorCode::DocumentEndMarker,
+                format!("line {ln}: `...` document-end marker is not allowed in SYON"),
+            ));
         }
         if t == "?" || t.starts_with("? ") {
-            return Err(SyonError::Forbidden(format!(
-                "line {ln}: complex key `?` is not allowed in SYON"
-            )));
+            return Err(SyonError::forbidden(
+                ErrorCode::ComplexKey,
+                format!("line {ln}: complex key `?` is not allowed in SYON"),
+            ));
+        }
+
+        // Track ``` fences so an unterminated one is an error rather than a
+        // document that silently swallows the rest of the file. Column 0 only,
+        // matching `fence_open`/`fence_close` in the grammar: a ``` inside a
+        // `|` block scalar is indented under its header, so it is content.
+        if line.starts_with("```") {
+            if open_fence.is_some() {
+                open_fence = None;
+            } else {
+                open_fence = Some(ln);
+            }
+            continue;
         }
 
         // `[[[ ... ]]]` was SYON's own literal escape hatch. It is gone: a
@@ -159,10 +220,13 @@ fn preflight(input: &str) -> Result<(), SyonError> {
         // to the generic flow-collection error, which would not say what to
         // write instead.
         if t.trim_end() == "[[[" || t.trim_end() == "]]]" {
-            return Err(SyonError::Forbidden(format!(
-                "line {ln}: `[[[ ... ]]]` literal blocks were removed; \
-                 use a `|` block scalar instead"
-            )));
+            return Err(SyonError::forbidden(
+                ErrorCode::LiteralBlockRemoved,
+                format!(
+                    "line {ln}: `[[[ ... ]]]` literal blocks were removed; \
+                     use a `|` block scalar instead"
+                ),
+            ));
         }
 
         // Indicator characters are NOT scanned here.
@@ -178,6 +242,14 @@ fn preflight(input: &str) -> Result<(), SyonError> {
         // These constructs are rejected in `check_node_start` instead, which
         // runs once the grammar has established where each node begins.
     }
+
+    if let Some(ln) = open_fence {
+        return Err(SyonError::syntax(
+            ErrorCode::UnterminatedFence,
+            format!("line {ln}: unterminated ``` document fence"),
+        ));
+    }
+
     Ok(())
 }
 
@@ -193,14 +265,17 @@ fn check_node_start(text: &str) -> Result<(), SyonError> {
 
     let named = second.is_some_and(|c| c.is_alphanumeric() || c == '_');
     match first {
-        '&' if named => Err(SyonError::Forbidden(
-            "anchor `&name` is not allowed in SYON".into(),
+        '&' if named => Err(SyonError::forbidden(
+            ErrorCode::Anchor,
+            "anchor `&name` is not allowed in SYON",
         )),
-        '*' if named => Err(SyonError::Forbidden(
-            "alias `*name` is not allowed in SYON".into(),
+        '*' if named => Err(SyonError::forbidden(
+            ErrorCode::Alias,
+            "alias `*name` is not allowed in SYON",
         )),
-        '!' if named || second == Some('!') => Err(SyonError::Forbidden(
-            "tag `!` / `!!` is not allowed in SYON".into(),
+        '!' if named || second == Some('!') => Err(SyonError::forbidden(
+            ErrorCode::ExplicitTag,
+            "tag `!` / `!!` is not allowed in SYON",
         )),
         // `[` and `{` are deliberately absent.
         //
@@ -227,11 +302,14 @@ fn depth_of(indent: usize, opts: &ParseOptions) -> Result<usize, SyonError> {
     if indent.is_multiple_of(opts.space_count) {
         Ok(depth)
     } else {
-        Err(SyonError::Syntax(format!(
-            "indented {indent} spaces, which is not a multiple of {} -- \
-             SYON uses a fixed indentation step",
-            opts.space_count
-        )))
+        Err(SyonError::syntax(
+            ErrorCode::IndentNotMultipleOfStep,
+            format!(
+                "indented {indent} spaces, which is not a multiple of {} -- \
+                 SYON uses a fixed indentation step",
+                opts.space_count
+            ),
+        ))
     }
 }
 
@@ -295,8 +373,12 @@ fn split_compact_entry(text: &str) -> Option<(String, String)> {
 /// Prefix an error with the source line it came from.
 fn at_line(e: SyonError, line: usize) -> SyonError {
     match e {
-        SyonError::Forbidden(m) => SyonError::Forbidden(format!("line {line}: {m}")),
-        SyonError::Syntax(m) => SyonError::Syntax(format!("line {line}: {m}")),
+        SyonError::Forbidden { code, message } => {
+            SyonError::forbidden(code, format!("line {line}: {message}"))
+        }
+        SyonError::Syntax { code, message } => {
+            SyonError::syntax(code, format!("line {line}: {message}"))
+        }
     }
 }
 
@@ -360,7 +442,7 @@ fn collect_lines(
     opts: &ParseOptions,
 ) -> Result<(Vec<Line>, Vec<usize>), SyonError> {
     let pairs = SyonParser::parse(Rule::document, input).map_err(|e| {
-        SyonError::Syntax(format!("{e}"))
+        SyonError::syntax(ErrorCode::MalformedStructure, format!("{e}"))
     })?;
 
     let mut lines = Vec::new();
@@ -418,9 +500,10 @@ fn collect_lines(
                 // Validate key doesn't start with operator symbols
                 let k = key.trim_start();
                 if k.starts_with(':') || k.starts_with('-') || k.starts_with('#') {
-                    return Err(SyonError::Syntax(format!(
-                        "key {:?} must not start with an operator symbol", key
-                    )));
+                    return Err(SyonError::syntax(
+                        ErrorCode::KeyStartsWithOperator,
+                        format!("key {:?} must not start with an operator symbol", key),
+                    ));
                 }
                 // A key also sits at node start, so `{a: b}` at line start
                 // is a flow mapping rather than a key named `{a`.
@@ -835,7 +918,10 @@ impl<'a> Builder<'a> {
 
                 // Duplicate key check
                 if entries.iter().any(|e| e.key == key) {
-                    return Err(SyonError::Syntax(format!("duplicate key {:?}", key)));
+                    return Err(SyonError::syntax(
+                        ErrorCode::DuplicateKey,
+                        format!("duplicate key {:?}", key),
+                    ));
                 }
 
                 entries.push(MappingEntry {
@@ -901,11 +987,14 @@ impl<'a> Builder<'a> {
                 // silent wrong answer, which is the defect this whole path
                 // exists to remove. Say so instead.
                 if compact_block.is_some() && !self.opts.allow_key_in_line_after_list {
-                    return Err(SyonError::Syntax(format!(
-                        "line {header_line}: a sequence item's `key: |` block scalar needs \
-                         `allow_key_in_line_after_list`; without it, write the `-` on its \
-                         own line and the key beneath it"
-                    )));
+                    return Err(SyonError::syntax(
+                        ErrorCode::CompactBlockScalarNeedsOption,
+                        format!(
+                            "line {header_line}: a sequence item's `key: |` block scalar needs \
+                             `allow_key_in_line_after_list`; without it, write the `-` on its \
+                             own line and the key beneath it"
+                        ),
+                    ));
                 }
                 if let Some((key, chomp)) = compact_block {
                     let owner = self.compact_key_column(header_line, indent);
@@ -925,10 +1014,10 @@ impl<'a> Builder<'a> {
                             match self.parse_block(ci)? {
                                 Some(Value::Mapping(rest)) => entries.extend(rest),
                                 Some(_) => {
-                                    return Err(SyonError::Syntax(
+                                    return Err(SyonError::syntax(
+                                        ErrorCode::SequenceItemMixesMappingAndBlock,
                                         "a sequence item mixes `key: value` with a \
-                                         non-mapping block"
-                                            .into(),
+                                         non-mapping block",
                                     ))
                                 }
                                 None => {}
@@ -993,9 +1082,9 @@ impl<'a> Builder<'a> {
                         match child {
                             Some(Value::Mapping(rest)) => entries.extend(rest),
                             Some(_) => {
-                                return Err(SyonError::Syntax(
-                                    "a sequence item mixes `key: value` with a non-mapping block"
-                                        .into(),
+                                return Err(SyonError::syntax(
+                                    ErrorCode::SequenceItemMixesMappingAndBlock,
+                                    "a sequence item mixes `key: value` with a non-mapping block",
                                 ))
                             }
                             None => {}
@@ -1005,11 +1094,14 @@ impl<'a> Builder<'a> {
                     // Both halves present but not merged: say so, rather than
                     // dropping one of them silently.
                     (Some(Value::Scalar(sc)), Some(_)) if !sc.trim().is_empty() => {
-                        return Err(SyonError::Syntax(format!(
-                            "sequence item has both inline text {sc:?} and an indented \
-                             block; enable `allow_key_in_line_after_list` to read it as \
-                             a compact mapping"
-                        )))
+                        return Err(SyonError::syntax(
+                            ErrorCode::SequenceItemInlineTextAndBlock,
+                            format!(
+                                "sequence item has both inline text {sc:?} and an indented \
+                                 block; enable `allow_key_in_line_after_list` to read it as \
+                                 a compact mapping"
+                            ),
+                        ))
                     }
                     (_, Some(child)) => child,
                     (Some(iv), None) => iv,
@@ -1103,11 +1195,14 @@ pub fn parse_with(input: &str, opts: ParseOptions) -> Result<SyonFile, SyonError
             // A raw line still here was never claimed by a block scalar, so
             // it is genuinely malformed rather than verbatim content.
             Some(Line::Raw { text, line, .. }) => {
-                return Err(SyonError::Syntax(format!(
-                    "line {line}: unexpected content {:?} -- expected a mapping entry, \
-                     a sequence item, or the body of a `|` block",
-                    text.trim()
-                )));
+                return Err(SyonError::syntax(
+                    ErrorCode::UnexpectedContent,
+                    format!(
+                        "line {line}: unexpected content {:?} -- expected a mapping entry, \
+                         a sequence item, or the body of a `|` block",
+                        text.trim()
+                    ),
+                ));
             }
             _ => {
                 // Main (unfenced) document
@@ -1309,6 +1404,85 @@ mod tests {
         }
     }
 
+    // --- Block scalar bodies are verbatim ---
+
+    #[test]
+    fn markers_inside_a_block_scalar_body_are_content() {
+        // Regression: preflight scanned every line for `---`, so three dashes
+        // written inside a `|` body were rejected as a document marker even
+        // though the body is verbatim text. syon-go always read it correctly.
+        for marker in ["--", "---", "----", "...", "?", "[[[", "]]]"] {
+            let input = format!("note: |\n  before\n  {marker}\n  after\n");
+            let doc = parse_document(&input)
+                .unwrap_or_else(|e| panic!("{marker:?} in a block body was rejected: {e}"));
+            match doc.body {
+                Value::Mapping(entries) => match &entries[0].value {
+                    Value::LiteralBlock(body) => {
+                        assert_eq!(body, &format!("before\n{marker}\nafter\n"));
+                    }
+                    other => panic!("expected LiteralBlock, got {other:?}"),
+                },
+                other => panic!("expected Mapping, got {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn markers_outside_a_block_scalar_body_are_still_rejected() {
+        // The exemption is scoped to the body. Dedenting back out restores it.
+        for (input, want) in [
+            ("a: 1\n---\nb: 2\n", ErrorCode::DocumentStartMarker),
+            ("note: |\n  body\n---\n", ErrorCode::DocumentStartMarker),
+            ("a: 1\n...\n", ErrorCode::DocumentEndMarker),
+            ("? a\n", ErrorCode::ComplexKey),
+        ] {
+            assert_eq!(parse(input).unwrap_err().code(), want, "input {input:?}");
+        }
+    }
+
+    #[test]
+    fn a_scalar_ending_in_a_pipe_does_not_open_a_block_body() {
+        // `cmd: echo a |` is a scalar, so the next line is structure again --
+        // preflight must agree with `block_header`, which requires the token
+        // to be the whole value.
+        let err = parse("cmd: echo a |\n---\n").unwrap_err();
+        assert_eq!(err.code(), ErrorCode::DocumentStartMarker);
+    }
+
+    // --- Error codes ---
+
+    /// Every code this implementation can actually produce, pinned to the
+    /// input that produces it. A code is API: renumbering one silently would
+    /// break callers matching on it, so the table lives in a test rather than
+    /// only in `spec/05-error-codes.md`.
+    #[test]
+    fn error_codes_are_stable() {
+        let cases: &[(&str, ErrorCode)] = &[
+            ("key:\n\t- item\n", ErrorCode::TabInIndentation),
+            ("a: 1\n---\nb: 2\n", ErrorCode::DocumentStartMarker),
+            ("a: 1\n...\n", ErrorCode::DocumentEndMarker),
+            ("? a\n", ErrorCode::ComplexKey),
+            ("desc: [[[\n  x\n  ]]]\n", ErrorCode::LiteralBlockRemoved),
+            ("```path.json\nkey: value\n", ErrorCode::UnterminatedFence),
+            ("key: &anchor\n", ErrorCode::Anchor),
+            ("key: *alias\n", ErrorCode::Alias),
+            ("key: !!str x\n", ErrorCode::ExplicitTag),
+            ("a: 1\na: 2\n", ErrorCode::DuplicateKey),
+        ];
+        for (input, want) in cases {
+            let err = parse(input).unwrap_err();
+            assert_eq!(err.code(), *want, "input {input:?} produced {err}");
+        }
+    }
+
+    #[test]
+    fn display_carries_the_code() {
+        let err = parse("```path.json\nkey: value\n").unwrap_err();
+        let text = err.to_string();
+        assert!(text.starts_with("[SYON-202]"), "got {text}");
+        assert!(text.contains("unterminated ``` document fence"), "got {text}");
+    }
+
     // --- Forbidden constructs ---
 
     #[test]
@@ -1395,6 +1569,35 @@ mod tests {
         let fenced = file.documents.iter().find(|d| d.path.is_some()).unwrap();
         assert_eq!(fenced.path.as_deref(), Some("config"));
         assert_eq!(fenced.format.as_deref(), Some("json"));
+    }
+
+    #[test]
+    fn unterminated_fence_is_rejected() {
+        // Regression: `fence_open` and `fence_close` are independent grammar
+        // rules, so an unmatched open used to parse cleanly and absorb the
+        // rest of the file as its body. syon-go already rejected this.
+        let err = parse("```path.json\nkey: value\n").unwrap_err();
+        assert_eq!(err.code(), ErrorCode::UnterminatedFence);
+    }
+
+    #[test]
+    fn paired_fences_still_parse_after_the_unterminated_check() {
+        // Two fenced documents in a row: the close of the first must not be
+        // read as the open of the second.
+        let input = "```a.json\nkey: value\n```\n```b.json\nother: thing\n```\n";
+        let file = parse(input).unwrap();
+        let paths: Vec<_> = file.documents.iter().filter_map(|d| d.path.as_deref()).collect();
+        assert_eq!(paths, vec!["a", "b"]);
+    }
+
+    #[test]
+    fn backticks_inside_a_block_scalar_are_content_not_a_fence() {
+        // The body of a `|` block is indented under its header, so a ``` line
+        // there is never at column 0 and must not open a fence.
+        let input = "readme: |\n  ```sh\n  echo hi\n  ```\n";
+        let file = parse(input).unwrap();
+        assert_eq!(file.documents.len(), 1);
+        assert!(file.documents[0].path.is_none());
     }
 
     // --- Duplicate key rejection ---

@@ -1,0 +1,77 @@
+architecture-decision-record:
+  identifier: "0008"
+  title: Numeric error codes for parse errors, mirrored per language
+  status: accepted
+  date: "2026-08-23"
+  deciders:
+    - felix
+  superseded-by: ""
+  context: |
+    SyonError (Rust), syon.Error (Go) and syon.SyonError (Python) carried
+    only a Forbidden/Syntax kind plus a human-readable message. There was no
+    stable, programmatic way to ask "is this specifically a duplicate-key
+    error?" without matching on the message text, which is fragile across
+    wording changes and impossible to keep in sync across three
+    independently-written parsers (see ADR 0004).
+
+    A three-digit numeric code was requested, banded by block. An earlier
+    attempt at this banded the codes against a three-block language, with
+    Block 2 for literal blocks and Block 3 for document fences, following
+    the phase1 analyzer's numbering rather than the grammar spec's, and ADR
+    0006 recorded the resulting divergence as an accepted cost.
+
+    ADR 0007 then removed the literal escape hatch. That deleted one of the
+    two contested block types, so the phase1 numbering and the grammar
+    spec's numbering now agree, and a table banded against the three-block
+    model would describe blocks the language no longer has.
+  decision: |
+    Attach a three-digit ErrorCode to every parse error in all three
+    implementations, banded against the two-block model both the grammar
+    spec and phase1 now share: 1-99 general, 101-199 Block 1 (records,
+    including | block scalars), 201-299 Block 2 (document fences). Within a
+    band the low two digits are reserved for the same kind of problem in a
+    different block, so 112 and 212 would both mean "anchor used where
+    forbidden."
+
+    Decode-time failures, which happen after a successful parse and sit
+    outside the block model entirely, take 11-19.
+
+    The code is API; the message wording is not. Each implementation defines
+    its own enum rather than sharing one, matching the per-language
+    mirroring ADR 0004 established, and each pins its codes in a test so a
+    renumbering cannot land silently. The full table, with per-implementation
+    reachability, lives in spec/05-error-codes.md.
+
+    Not every code is reachable in every implementation, and that is
+    recorded rather than hidden. Rust carries a leading [ or { through as
+    scalar text because a pre-parse scan cannot tell an indicator from
+    ordinary content; Go rejects it. Go has no configurable indentation
+    step. Codes defined but unreachable are marked reserved, so the three
+    enums stay in lockstep and a number is never reused for a different
+    meaning.
+  outcome: |
+    Implementing the codes surfaced a real bug, fixed in the same change: an
+    unterminated ``` fence was silently accepted by the Rust parser, which
+    absorbed the rest of the file as that document's body, while syon-go
+    already rejected it. The two implementations disagreed on a document
+    that ADR 0004's independent-implementation discipline says they must
+    agree on. The Rust preflight scan now tracks fence-open/close state and
+    reports SYON-202, matching Go.
+  consequences:
+    positive:
+      - A caller can dispatch on a specific failure without matching message text, which is what made cross-implementation agreement checkable in the first place.
+      - Writing the table forced an audit of every error site in all three implementations, which is how the unterminated-fence divergence was found.
+      - The reserved markers make the gaps between implementations explicit and reviewable, rather than something a reader has to discover by testing.
+    negative:
+      - Three enums must be kept in step by hand. The Python binding's From impl is exhaustive so a missing Rust variant is a compile error, but nothing enforces the Go side beyond review and the pinned tests.
+      - Codes are a compatibility surface. Once published, a number cannot be reused for a different meaning, so an error site that is later split into two needs a new code rather than a renumbering.
+  alternatives-rejected:
+    -
+      name: Keep the earlier three-block banding, with fences at 301-399
+      reason: It bands against a language with a literal escape hatch, which ADR 0007 removed. Publishing numbers for blocks that no longer exist would preserve a divergence whose cause is gone.
+    -
+      name: A single shared code enum, generated for all three languages
+      reason: Rejected as contrary to ADR 0004, which chose independent implementations over a shared core precisely so the two parsers can disagree visibly and be caught, rather than sharing a bug.
+    -
+      name: Structured error variants instead of numeric codes
+      reason: A Rust enum with a variant per failure would be more idiomatic in Rust alone, but does not survive the FFI or the Go boundary, which is where the cross-implementation matching has to happen.

@@ -40,8 +40,9 @@ func TestExamplesParse(t *testing.T) {
 	parseAllSyonUnder(t, filepath.Join("..", "examples"))
 }
 
-// TestDecisionsParse parses every ADR under ../docs/decisions — the ADR log
-// is itself a corpus of real SYON documents (see docs/decisions/0001-*.syon).
+// TestDecisionsParse parses every ADR under ../design/architecture — the ADR
+// log is itself a corpus of real SYON documents (see
+// design/architecture/0001-*.syon).
 func TestDecisionsParse(t *testing.T) {
-	parseAllSyonUnder(t, filepath.Join("..", "docs", "decisions"))
+	parseAllSyonUnder(t, filepath.Join("..", "design", "architecture"))
 }

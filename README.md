@@ -37,7 +37,7 @@ See [`spec/README.md`](spec/README.md) for the full language specification.
 
 ## Architecture decisions
 
-See [`docs/decisions/`](docs/decisions) for the ADR log — why pest was
+See [`design/architecture/`](design/architecture) for the ADR log — why pest was
 chosen for the Rust parser, why Go got an independent implementation
 instead of FFI bindings, and other architecturally significant calls.
 

@@ -65,7 +65,7 @@ jobs:
               status=1
             fi
             echo "::endgroup::"
-          done < <(find examples docs/decisions -name '*.syon' -print0)
+          done < <(find examples design/architecture -name '*.syon' -print0)
           exit "$status"
 
   go-build:
@@ -105,6 +105,50 @@ jobs:
 
       - name: cargo build --workspace
         run: cargo build --workspace
+
+  python-build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: crates/syon-python
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          # Pinned, not "3.x": pyo3 0.21 (crates/syon-python/Cargo.toml)
+          # doesn't support Python newer than 3.12, but "3.x" floats to
+          # whatever CPython the runner ships.
+          python-version: "3.12"
+
+      - name: Create virtualenv
+        # `maturin develop` refuses to run outside a virtualenv, and
+        # actions/setup-python installs Python system-wide, not into one.
+        # $GITHUB_PATH/$GITHUB_ENV persist across the job's later steps.
+        run: |
+          python -m venv .venv
+          echo "$(pwd)/.venv/bin" >> "$GITHUB_PATH"
+          echo "VIRTUAL_ENV=$(pwd)/.venv" >> "$GITHUB_ENV"
+
+      - name: Install maturin and test dependencies
+        # NOT `pip install ".[test]"` -- that also asks pip to build+install
+        # the local `syon` package itself via a generic PEP 517 wheel build,
+        # redundant with (and less reliable than) `maturin develop` below.
+        run: pip install maturin pytest
+
+      - name: Build and install the syon extension (maturin develop)
+        run: maturin develop
+
+      - name: pytest
+        run: pytest tests/ -v
 
   docs-eval:
     runs-on: ubuntu-latest
