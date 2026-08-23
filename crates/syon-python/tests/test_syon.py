@@ -47,9 +47,10 @@ def test_rejects_anchor():
         syon.parse("base: &anchor value\n")
 
 
-def test_rejects_flow_mapping():
-    with pytest.raises(syon.SyonError):
-        syon.parse("obj: {a: 1}\n")
+def test_flow_mapping_passes_through_as_scalar():
+    # SYON declines to interpret `{`/`[`: the text reaches the consumer
+    # verbatim, which is what keeps `{{ .TASK }}` templates intact.
+    assert syon.parse("obj: {a: 1}\n")["obj"] == "{a: 1}"
 
 
 def test_multi_document():
@@ -122,19 +123,20 @@ def test_error_alias():
         syon.parse("ref: *anchor\n")
 
 
-def test_error_flow_mapping():
-    with pytest.raises(syon.SyonError, match=r"(?i)flow|forbidden|\{"):
-        syon.parse("obj: {a: 1, b: 2}\n")
+def test_flow_mapping_is_not_an_error():
+    assert syon.parse("obj: {a: 1, b: 2}\n")["obj"] == "{a: 1, b: 2}"
 
 
-def test_error_flow_sequence():
-    with pytest.raises(syon.SyonError, match=r"(?i)flow|forbidden|\["):
-        syon.parse("list: [1, 2, 3]\n")
+def test_flow_sequence_is_not_an_error():
+    assert syon.parse("list: [1, 2, 3]\n")["list"] == "[1, 2, 3]"
 
 
-def test_error_doc_start_marker():
-    with pytest.raises(syon.SyonError, match=r"(?i)forbidden|---"):
-        syon.parse("---\nkey: value\n")
+def test_leading_doc_marker_is_allowed_but_a_second_is_not():
+    # One `---` opens the single document a SYON file holds; a second one
+    # would start a stream, which SYON forbids.
+    assert syon.parse("---\nkey: value\n")["key"] == "value"
+    with pytest.raises(syon.SyonError, match=r"(?i)forbidden|---|second"):
+        syon.parse("---\nkey: value\n---\nother: x\n")
 
 
 def test_error_complex_key():
