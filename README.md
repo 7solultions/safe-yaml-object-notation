@@ -75,6 +75,16 @@ alongside rather than on top of the SYON stack.
 | [shlita_02](design/architecture/ADR_shlita_02__fbd_and_sfc_are_documents.syon) | FBD and SFC are documents rather than syntaxes, and PLCopen already names their parts |
 | [shlita_03](design/architecture/ADR_shlita_03__structured_text_dialect.syon) | Structured Text takes Python's statements and IEC's types, and is not Python |
 
+### Printable edition
+
+`task adr-pdf` renders every record into `build/ADR__<date>.pdf` — a typeset
+book with a cover, a linked index and PDF bookmarks. The pipeline reads the
+records through `syon-cli` rather than a second parser, so the book is built
+from the same bytes CI validates, and it takes its order from the index table
+above and fails if a record on disk is missing from it. Requires
+[Typst](https://typst.app); the template is
+[`design/architecture/typst/adr_book.typ`](design/architecture/typst/adr_book.typ).
+
 ## Roadmap / TODO
 
 - [ ] Add a YAML-compatible mode for Block 2 (document fences), so fenced

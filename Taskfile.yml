@@ -113,6 +113,13 @@ tasks:
       - cp spec/*.md docs/spec/
       - cp design/architecture/README.md design/architecture/*.syon docs/decisions/
 
+  adr-pdf:
+    desc: Render every ADR into build/ADR__<date>.pdf (requires typst)
+    cmds:
+      - python3 scripts/adr_book.py
+      - typst compile --root . design/architecture/typst/adr_book.typ "build/ADR__$(date +%Y-%m-%d).pdf"
+      - echo "wrote build/ADR__$(date +%Y-%m-%d).pdf"
+
   docs-build:
     desc: Build the Zensical documentation site into site/ (requires `pip install zensical`)
     deps: [docs-sync]
