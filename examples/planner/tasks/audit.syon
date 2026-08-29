@@ -1,0 +1,6 @@
+# Only the required fields are written. Every optional field is absent, and
+# each falls back to its type's unknown rather than to a zero or an epoch.
+id: 018f5e2a-0000-7000-8000-000000000002
+title: Schedule the security audit
+estimate: P2D
+priority: 4

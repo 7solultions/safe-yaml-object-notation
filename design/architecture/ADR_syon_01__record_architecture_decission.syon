@@ -1,5 +1,5 @@
 architecture-decision-record:
-  identifier: "0001"
+  identifier: "syon_01"
   title: Record architecture decisions
   status: accepted
   date: "2026-07-11"

@@ -1,0 +1,102 @@
+architecture-decision-record:
+  identifier: "hodesh_04"
+  title: Months are numbered rather than named, and year zero begins at the first new moon of 2000
+  status: proposed
+  date: "2026-08-29"
+  deciders:
+    - felix
+  superseded-by: ""
+  open-questions:
+    - Whether a hodesh date is distinguishable from a Gregorian one in text at all, since both are written YYYY-MM-DD and a document carrying one without saying which calendar it uses is ambiguous.
+    - Whether the text form should carry a calendar marker, and if so whether that belongs in this crate or in a sheni simple type that names its calendar.
+    - Whether year 0 will read as a defect to anyone who meets it without this record, given that no calendar in common use has one, and whether the numbering should be stated as an offset from 2000 rather than as an era.
+    - Whether an epoch inside living memory is a liability, since almost every date anyone currently holds is negative in hodesh, and negative years are the case implementations get wrong.
+    - Whether month numbers should be written 1 to 13 as now or zero-based, given that the day of the month is already effectively an age counted from zero.
+    - Whether the calendar needs a name for month 13 in interfaces meant for people, or whether a number is genuinely enough.
+  context: |
+    Two questions of identity rather than arithmetic, decided together because
+    they have the same answer for the same reason.
+
+    The first is what to call the months. The Gregorian month names are Roman
+    -- two emperors, some gods, and four numbers that are wrong because two
+    months were inserted after they were named. September is the ninth month
+    and its name says seventh. Any calendar meant as an international standard
+    that adopted them would be exporting one culture's dead vocabulary, and
+    the Hebrew month names hodesh derives from would be exporting another's
+    living one. Neither is a standard. Both require every speaker of every
+    language to learn a foreign word list to say what day it is.
+
+    The second is where to start counting. A calendar has to name a first day,
+    and the choice is unavoidably arbitrary in the sense that no day is
+    intrinsically first -- but it is not therefore unconstrained, because the
+    epoch is the one date every other date is defined against, and it can
+    either say something about the calendar or say nothing.
+  decision: |
+    Months are numbered, 1 to 12, and 13 in a leap year. There are no names,
+    not even optional ones, and there is no name table anywhere in the crate.
+    A number is language-independent, sorts correctly, needs no translation
+    and cannot be wrong about its own position the way September is.
+
+    Year 0, month 1, day 1 is proleptic Gregorian 2000-01-06 -- the first new
+    moon of the year 2000.
+
+    Both halves of that are chosen. The year 2000 is the anchor because it is
+    the roundest year in the calendar hodesh has to interoperate with, and
+    because an epoch within living memory keeps the numbers small for the
+    dates people actually use. The specific day is the new moon rather than
+    January 1 because ADR hodesh_02 makes a month begin at a new moon, and a
+    calendar whose own first day is not a new moon would be contradicting its
+    central rule in its first sentence.
+
+    The numbering starts at zero, not one. Year 0 is the first year, year -1
+    is the year before it, and there is no gap. This is the same decision the
+    Gregorian implementation in this workspace makes when it allows a year 0
+    where the common era does not -- arithmetic that has to special-case a
+    missing zero is arithmetic that is wrong somewhere, usually just far
+    enough from the epoch that nobody notices. A year number here is a signed
+    count from a reference point rather than an era with a first year, which
+    is also the more honest description of what it is.
+
+    The text form is YYYY-MM-DD, zero-padded, with a leading minus for years
+    before the epoch, and it is parsed strictly -- 0026-05-17 is a date and
+    26-5-17 is an error. This is the same strictness sheni's date type applies
+    for the same reason: a format meant for interchange has exactly one
+    spelling, and accepting a second one means every consumer has to handle
+    both.
+  consequences:
+    positive:
+      - A month number needs no translation, so the calendar is equally readable in every language rather than in the languages that borrowed Latin.
+      - A number cannot be wrong about its own position, which September, October, November and December all are.
+      - Sorting a date as text sorts it chronologically, since every field is fixed-width and zero-padded.
+      - The epoch is a new moon, so the calendar's first day obeys the calendar's own month rule, and the definition has no exception at its own origin.
+      - Anchoring to the year 2000 keeps year numbers small and mentally convertible for the range of dates most systems hold.
+      - Starting at zero removes the missing-year-zero class of bug entirely rather than documenting it.
+    negative:
+      - A numbered month is harder to remember and easier to transpose than a named one, and 05 carries none of the seasonal association May does.
+      - Dropping the Hebrew month names removes the last visible trace of what hodesh is a variant of, so the relationship is only in these records.
+      - The text form is indistinguishable from a Gregorian date, so a bare YYYY-MM-DD with no context can be read in the wrong calendar and will look plausible.
+      - Almost every date now in existence is a negative hodesh year, which puts the awkward sign path on the common case rather than the rare one.
+      - Year 0 will read as an off-by-one to anyone who meets it without this record, because no calendar in common use has one.
+      - An epoch in the year 2000 gives the calendar no claim to antiquity, which is a real cost for something proposed as a world standard.
+  alternatives-rejected:
+    -
+      name: Keep the Hebrew month names
+      reason: Hodesh is a variant of the Hebrew calendar in structure, not a continuation of it in observance. Exporting one culture's month names as a world standard is the thing this record is refusing, and it does not become acceptable by changing which culture.
+    -
+      name: Numbered months with optional names in each language
+      reason: The names would immediately become the interface and the numbers a footnote, which is the outcome the numbering exists to prevent. It also puts the crate in the business of maintaining name tables in languages nobody here speaks.
+    -
+      name: Gregorian 2000-01-01 as the epoch
+      reason: A rounder date, and not a new moon, so the calendar's first month would begin five days before its first new moon. The origin would be the one place the month rule did not hold.
+    -
+      name: Year 1 rather than year 0 as the first year
+      reason: It reintroduces the discontinuity the common era has between 1 BCE and 1 CE, which every date library then works around. There is no reason to inherit a bug for the sake of matching a convention hodesh is otherwise departing from.
+    -
+      name: An ancient epoch, as the Hebrew calendar's own era uses
+      reason: It would give large year numbers for present dates with no gain in accuracy, and any ancient date chosen would be a claim about history the calendar has no business making.
+    -
+      name: The Unix epoch, 1970-01-01
+      reason: Not a new moon, not round in the Gregorian calendar either, and an accident of one operating system. ADR hodesh_01 rejected it as a day count origin for the same reason.
+    -
+      name: A lenient text parser accepting 26-5-17 alongside 0026-05-17
+      reason: Two spellings of one date means every consumer handles both, and one of them eventually handles only one. Sheni's date type made the same call for the same reason.

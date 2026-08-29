@@ -1,0 +1,115 @@
+architecture-decision-record:
+  identifier: "sheni_10"
+  title: A range whose ends may be unknown is one type, and the standard chooses its fallback
+  status: accepted
+  date: "2026-08-29"
+  deciders:
+    - felix
+  superseded-by: ""
+  open-questions:
+    - The fourth axis, anchoring, has no type. Sheni's `timestamp` is RFC 3339 and requires an offset, so a local wall-clock reading that travels with the reader -- "07:00, wherever I am" -- cannot be written, and neither can a recurring routine built on one. It is a different standard from the other three axes and nothing downstream is blocked on it, so it is recorded as a gap rather than designed here.
+  context: |
+    ADR sheni_06 deferred EDTF's interval to a sibling type and said why: a
+    range is a pair and a date is a point, and one type that is sometimes each
+    makes every comparison branch. It named the sibling `soft_date_range` and
+    left it for its own record. This is that record.
+
+    It closes the third of four axes that a planning date needs, which are
+    worth keeping apart because only three of them are the same standard.
+    Precision -- day, month, quarter, year -- and certainty -- uncertain,
+    approximate -- are ADR sheni_06's, and both are EDTF. Range is this
+    record, and it is EDTF too. Anchoring -- whether a time is an instant
+    everyone agrees on or a local wall-clock reading that travels with the
+    reader -- is RFC 5545 rather than EDTF, applies to times rather than
+    dates, and stays open.
+
+    The open-ended deadline was one of the cases that motivated ADR sheni_06,
+    and that record listed leaving it unexpressible as a cost of deferring.
+    Nothing else in the crate can say "from August until whenever".
+  decision: |
+    A new simple type, `soft_date_range`, delegating to `edtf-core` as
+    `soft_date` does, accepting the `Edtf::Interval` shape and no other.
+
+    An endpoint is a date at any precision `soft_date` accepts, or `..` for
+    open, or empty for unknown. The two are different claims and EDTF keeps
+    them apart: open says the range genuinely has no end, and unknown says it
+    has one that nobody has recorded. A dated endpoint beside `..` reads as on
+    or before, or on or after, which is how "by the end of the year" is
+    written. The separator is `/`, which SYON carries without comment.
+
+    The fallback is `XXXX/XXXX`, and the standard chose it rather than this
+    record. The obvious spelling for a range that is entirely unknown is `/`,
+    or `../..`, and `edtf-core` rejects both: an interval needs at least one
+    dated endpoint. `XXXX/XXXX` is accepted, because a fully unspecified date
+    is dated -- it is a date that specifies nothing, which is precisely the
+    fallback ADR sheni_06 gave `soft_date`. So the fallback for the range is
+    the fallback for the point at both ends, arrived at by composition and
+    confirmed by the delegate rather than invented here.
+
+    That is worth stating as the general habit it is. Where a standard already
+    answers a question, the answer is looked up rather than decided, and where
+    the standard refuses something the refusal is evidence and not an
+    obstacle. This crate has now taken the same route three times: `soft_date`
+    excluding sets because SYON cannot carry them, ADR sheni_09 refusing
+    `soft_string` because `string` has no text left over, and this fallback.
+
+    Errors share the band ADR sheni_06 opened, because the two types fail in
+    the same three ways. 234 is text that is not EDTF at all. 235 is a set,
+    which is unwritable in SYON rather than merely unsupported. 236 is
+    well-formed EDTF of the wrong shape for the declared type, and the message
+    names the type the author wanted -- an interval read at `soft_date` says
+    to declare `soft_date_range`, a date read at `soft_date_range` says to
+    declare `soft_date`, and a date with a time of day says to declare
+    `timestamp`. Right family, wrong member is one problem and takes one code;
+    the message carries the specifics, as ADR syon_08 has it.
+
+    One caveat belongs on the record because it is invisible until it bites.
+    EDTF's uncertainty marker is `?`, which both implementations carry happily
+    in a value, and which the Go implementation rejects at the start of a
+    *key* as YAML's complex-key indicator. A soft date used as a map key and
+    written `?2026-06` would therefore parse in Rust and fail in Go. It is
+    narrow: EDTF's canonical form writes the qualifier last, so the value
+    normalises to `2026-06?` and reads back portably. Recorded rather than
+    fixed, since the fix belongs to whoever puts a soft date in a map key.
+
+    One shape is deliberately not this type, and it is wanted. A range is two
+    endpoints. "Two hours, somewhere between Monday and Friday" is a duration
+    and a window, which is a different shape and not an interval -- the
+    endpoints bound where the work may fall, and the duration says how much of
+    it there is. That is a struct composing `duration` with this type, it
+    belongs in group 3, and it is committed rather than conditional: it will
+    be built once group 3 exists, and it is the first curated struct with a
+    reason to exist beyond demonstrating that structs work.
+  consequences:
+    positive:
+      - The open-ended deadline becomes expressible, which ADR sheni_06 listed as a cost of deferring and is now paid back.
+      - Open and unknown stay distinct, so "runs indefinitely" and "nobody recorded an end" are different values rather than one convention.
+      - The fallback is composed from `soft_date`'s and confirmed by the delegate, so an optional range field needs no sentinel and nothing was invented to get one.
+      - Sharing the error band with `soft_date` keeps one vocabulary for two types that fail identically, and 236 tells an author which of the two they wanted.
+      - Both types read back canonically, so two applications exchanging a range agree on its text without negotiating anything.
+      - The four axes are now written down, so the one that is not EDTF is not mistaken for one that is.
+    negative:
+      - A third date type in group 2, and the choice between `date`, `soft_date` and `soft_date_range` is one more thing a schema author has to get right.
+      - EDTF's interval syntax is unfamiliar, and the difference between `2026-08/..` and `2026-08/` is one character carrying a real distinction.
+      - The `?`-as-a-map-key divergence is recorded and not fixed, so it can still surprise someone who writes a soft date as a key before it normalises.
+      - `XXXX/XXXX` is a strange thing to read in a document, and its being the standard's choice rather than ours does not make it obvious.
+      - The fourth axis stays open, so a floating or local-time range is still unexpressible and this record explains why without solving it.
+  alternatives-rejected:
+    -
+      name: One type covering both the point and the range
+      reason: Rejected in ADR sheni_06 and unchanged here. A value that is sometimes a point and sometimes a pair makes every comparison branch on which it is.
+    -
+      name: A struct holding two `soft_date` fields, in group 3
+      reason: It cannot express an open end, since `..` is not a date and has no `soft_date` to hold it. It would also discard the canonical text form, which is the thing that makes the value portable between applications.
+    -
+      name: Accept `/` or `../..` for a wholly unknown range, extending the standard
+      reason: The standard refuses them deliberately -- an interval needs a dated endpoint -- and text this crate accepts that EDTF rejects is not EDTF. `XXXX/XXXX` says the same thing and is portable.
+    -
+      name: Give `soft_date_range` no fallback, so a range field is always required
+      reason: An unscheduled task with no window yet is the ordinary case in the tools this type exists for, and ADR sheni_03 makes a fallback the only route to an optional field.
+    -
+      name: A separate error band for ranges
+      reason: The two types fail in the same three ways at the same delegate. Two vocabularies for one set of failures would make a caller match twice to ask one question.
+    -
+      name: Model a duration floating inside a window here
+      reason: It is a duration and a window rather than a pair of endpoints, so it is a different shape wearing a similar name. It composes this type with `duration`, and it is deferred to group 3 rather than declined -- see the decision, which commits to building it there.

@@ -1,0 +1,90 @@
+# Planner Task Schema — Sheni type layer, Convention v0.1.0
+#
+# Each key under `fields` names one field of a task document and the Sheni
+# type it is read at. The types are the ones the `sheni_types` crate ships;
+# nothing here is invented for the example.
+#
+# The rule that shapes this file is ADR sheni_03: a field may be `optional`
+# only where its type has a fallback, and a fallback must be a member of the
+# value space meaning "not known" -- never a legal value borrowed to stand in
+# for one. So `priority` is required because `u8` has no honest fallback,
+# while `assignee_count` is optional because `soft_u8` does.
+
+schema:
+  name: planner-task
+  version: 0.1.0
+  description: |
+    A task in a planner, written to show what the soft types are for. Every
+    optional field below falls back to a value that says "nobody knows",
+    which is the difference between an unscheduled task and a task scheduled
+    for the epoch.
+
+fields:
+
+  # -- Identity ------------------------------------------------------------
+
+  id:
+    type: uuid
+    required: required
+    description: RFC 9562 UUID, canonical hyphenated form.
+
+  title:
+    type: string
+    required: required
+    description: One line naming the task.
+
+  # -- Scheduling ----------------------------------------------------------
+  # This is what the soft types exist for. A planner that models an unknown
+  # due date as a null cannot tell "not scheduled" from "known to the quarter".
+
+  due:
+    type: soft_date
+    required: optional
+    fallback: XXXX
+    description: |
+      When the task is due, to whatever precision is actually known --
+      a day, a month, a quarter (`2026-35` is Q3), a year, or nothing.
+      Falls back to the fully unspecified date rather than to an epoch.
+
+  window:
+    type: soft_date_range
+    required: optional
+    fallback: XXXX/XXXX
+    description: |
+      The span the task must land inside. Either end may be a coarse date,
+      open (`..`, the range genuinely has no end), or unknown (empty, it has
+      an end nobody recorded). Those are different claims and stay apart.
+
+  estimate:
+    type: duration_iso
+    required: required
+    description: |
+      ISO 8601 period. Required, and deliberately: `duration_iso` has no
+      fallback, so there is no honest way to leave it out. A duration of zero
+      is an estimate somebody made.
+
+  # -- State ---------------------------------------------------------------
+
+  priority:
+    type: u8
+    required: required
+    description: |
+      Required for the same reason. Zero is a priority, not an absence, so
+      `u8` has no fallback and an optional priority is not offered.
+
+  assignee_count:
+    type: soft_u8
+    required: optional
+    fallback: unknown
+    description: |
+      How many people are on it. Soft, because a count of zero is a fact
+      somebody established and "nobody has looked" is a different fact.
+
+  blocked:
+    type: soft_bool
+    required: optional
+    fallback: unknown
+    description: |
+      Whether the task is blocked. Soft, because a flag reading `false`
+      because nobody set it is indistinguishable from one deliberately
+      turned off. Carries Kleene's `and`, `or` and `not`.

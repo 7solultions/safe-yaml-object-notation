@@ -1,0 +1,110 @@
+architecture-decision-record:
+  identifier: "sheni_01"
+  title: Primitive type set, spelling, and literal forms for Sheni
+  status: accepted
+  date: "2026-08-28"
+  deciders:
+    - felix
+  superseded-by: ""
+  context: |
+    SYON parses; it does not interpret. A successful parse hands back
+    Value::Scalar(String) -- the text between the delimiters, unchanged and
+    untyped. That is deliberate (see ADR 0001's framing of SYON as safe and
+    free of arbitrary type coercion), but it leaves every consumer to decide
+    on its own what "42", "no", and "2026-08-28" mean.
+
+    Sheni is the second layer: the type system that answers that question.
+    Its README sketches four groups -- primitives, simple, complex,
+    collections -- but the three later groups are all defined in terms of the
+    first. A simple type is an interpretation laid over a primitive carrier
+    (an id is an integer or a string, a date is a string in a fixed shape).
+    An enum binds its values to a primitive. A collection's positions and
+    keys are primitives. Nothing above the primitives can be pinned down
+    until the primitives are.
+
+    The layer 1 parser feeds strings to level 2, so the Norway problem of
+    YAML is not a problem for the parser itself.
+    Layer 2 knows about types and can therefore distinguish between a boolean `no`
+    and the language code `no`.
+    Additionally keys do always use a `string` primitive type.
+    The norway problem is really an automatic conversion problem without knowing
+    about the connected schema.
+  decision: |
+    Model the four groups as a single TypeGroup enum (Primitive, Simple,
+    Complex, Collection). Every type descriptor in every group reports which
+    group it belongs to, so the grouping is a property of the type system
+    rather than a comment in a README.
+
+    The primitive group holds exactly seven kinds: boolean, unsigned integer,
+    signed integer, float, byte character, unicode character, and string.
+    Integers and floats carry their width as part of the type rather than as
+    a separate attribute -- there is no width-less "int" or "number". A value
+    whose range is not stated is a value whose overflow behaviour is not
+    stated, which is the class of bug this layer exists to prevent.
+
+    Primitives are spelled the way Rust spells them: bool, u8 u16 u32 u64
+    u128, i8 i16 i32 i64 i128, f32 f64, byte, char, string. Inventing new
+    names for types the host language already names well buys nothing and
+    costs every reader a lookup.
+
+    String is a primitive, but is the one who most ofen is lifted to the simpple types
+    (adding a functional interpretation) as noted in the the README's outline.
+    The simple types are interpretations layered over a carrier, and most of them carry text;
+    the carrier has to exist in the layer below the thing carried.
+
+    Literal forms are a closed set, checked rather than guessed:
+
+      - Booleans accept true, false, yes, and no, case-insensitively. on and
+        off are reserved and rejected for now, as the README marks them
+        "maybe later"; reserving them means adding them later cannot change
+        the meaning of a document that parses today.
+      - Integers are decimal digits with an optional leading minus on signed
+        types. No leading plus, no digit separators, and no leading zeros
+        except the single digit 0 -- a leading zero is octal in too many
+        neighbouring languages to be worth the ambiguity.
+      - Floats are finite decimal literals with an optional exponent. NaN and
+        the infinities are rejected: they have no agreed text form across
+        formats and do not survive a round trip.
+      - A char is exactly one Unicode scalar value. A byte is one Unicode
+        scalar whose code point fits in 0..=255.
+      - A string accepts any well-formed UTF-8 text unchanged, including text
+        that would also be a valid boolean or number. Reading "no" as a
+        boolean happens only where the declared type is boolean.
+
+    Reading a literal is fallible and reports why it failed. Errors carry a
+    three-digit numeric code, banded by group --
+    - 001-099 general,
+    - 101-199 primitives,
+    - 201-299 simple,
+    - 301-399 complex,
+    - 401-499 collections
+    -- which is the same discipline ADR 0008 established for parse errors,
+    applied to the layer above. As there, the code is API and the message
+    wording is not.
+  consequences:
+    positive:
+      - The norway problem cannot occur. A scalar is read as a boolean only where the schema declares a boolean, so an unquoted country code stays a string.
+      - Widths being part of the type means an out-of-range literal is a typed error at read time rather than a silent wrap or a precision loss discovered later.
+      - Borrowing Rust's spelling makes the type names self-documenting for the implementation language, and the mapping to the parsed representation is one to one with no lookup table.
+      - Reserving on and off rather than accepting them keeps the option open without making today's documents ambiguous tomorrow.
+    negative:
+      - Requiring an explicit width is more verbose than a bare int, and every schema author pays that cost on every numeric field.
+      - Rejecting leading zeros makes zero-padded data (a fixed-width numeric id, a legacy export) fail as an integer, forcing it to be declared a string. That is the correct reading, but it will surprise people.
+      - A closed literal set means every extension is a new decision and a new ADR. That is the point, but it is friction.
+      - The banded code space commits Sheni to a number never being reused for a different meaning, exactly as ADR 0008 committed the parser.
+  alternatives-rejected:
+    -
+      name: A flat enum with one variant per width (U8, U16, U32, ...)
+      reason: Combinatorially larger and it hides that width is a property of a number rather than a different kind of thing. Matching on "is this an integer" would have to enumerate every width.
+    -
+      name: Width-less int and float, defaulting to 64 bits
+      reason: The convenient default is exactly the silent coercion this project rejects. A default width is still a width, just one nobody wrote down.
+    -
+      name: Accept YAML 1.1's full boolean vocabulary (y, n, yes, no, on, off, true, false, and their case variants)
+      reason: That vocabulary is the origin of the Norway problem. The closed set here is narrower and, more importantly, only ever consulted where a boolean was declared.
+    -
+      name: Reuse serde_json::Value as the value model
+      reason: It has one number type, loses width and signedness, and cannot represent a byte character or a distinction between char and a one-character string. It is a serialization shape, not a type system.
+    -
+      name: Defer string to both the primitives group and as a core storage for simple groups, as the README's outline reads
+      reason: Every simple type is an interpretation of a carrier. Without string in the primitive group, the group the simple types are built on would be missing the carrier most of them use.

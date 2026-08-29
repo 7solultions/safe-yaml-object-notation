@@ -1,0 +1,163 @@
+architecture-decision-record:
+  identifier: "shelishi_01"
+  title: The schema layer supplies types at runtime, reusing the shapes sheni already defines
+  status: proposed
+  date: "2026-08-29"
+  deciders:
+    - felix
+  superseded-by: ""
+  context: |
+    Sheni, the second layer, holds four groups of types and all four are
+    closed. Primitives and simple types are enumerated in the crate. The
+    complex group is a curated library of composite shapes -- an address, a
+    month, an amount of money -- deliberately closed so that two applications
+    using Sheni mean the same thing by an address without agreeing on one
+    first. Collections are closed in their constructors.
+
+    A curated library, by construction, holds only what is common to
+    applications that have nothing else in common. That is criterion two in
+    ADR sheni_03, and it is doing its job. But everything an application
+    actually is -- its orders, its invoices, its device readings -- fails that
+    criterion by definition and always will.
+
+    So there has to be a way to declare types, and ADR sheni_05 settled where
+    it does not go. It is not a fifth group of the type layer, because a
+    user-declared struct is a struct and provenance is not a kind, and because
+    a resolver compiled into the type layer is paid for by every consumer of
+    `u8`. It is the third layer, and this crate.
+
+    What is left to settle is what this layer borrows rather than what it
+    invents.
+  decision: |
+    A schema-based type is an enum or a struct that an application declares,
+    read at runtime from a SYON schema.
+
+    It is the same enum and the same struct ADR sheni_03 defines. The same
+    variants over a backing primitive, the same named and typed fields, the
+    same rules about required fields, unrecognised keys, and declaration
+    order. What differs is only where the definition comes from. This layer
+    supplies definitions; it does not define a second kind of enum or a second
+    kind of struct, and if the two ever disagree about what a struct is, sheni
+    is right and this crate is broken.
+
+    A schema is data. Definitions are written in SYON and read through
+    `syon-parser` exactly as documents are, so a schema arrives at runtime
+    from a file rather than being compiled in. The shape is a mapping of type
+    name to definition:
+
+        types:
+          Colour:
+            kind: enum
+            backing: u8
+            variants:
+              red: 1
+              green: 2
+              blue: 3
+          Order:
+            kind: struct
+            fields:
+              placed_at:
+                type: timestamp
+              ship_to:
+                type: address
+              lines:
+                type: list<Order_line>
+              note:
+                type: string
+                optional: yes
+
+    Note what `ship_to` and `lines` do. A declared type may name a built-in
+    from any of sheni's four groups, so a schema starts from the curated
+    library rather than from nothing, and an application's own types compose
+    with the shared ones. That is the payoff for sheni having built group 3
+    first, and it is why this layer depends on that one.
+
+    This crate's type is sheni's plus declared names -- a built-in `Type` or a
+    reference to a definition in the schema -- and it instantiates sheni's
+    generic `CollectionType` at that type, per ADR sheni_05. A `list<Order>`
+    is then sheni's list constructor holding this layer's element type, with
+    no new constructor and nothing for sheni to know about.
+
+    The same holds for the definitions themselves. ADR sheni_03 makes
+    `StructShape<T>` and `EnumShape` generic for this reason, so a declared
+    struct is sheni's struct shape instantiated at this layer's type rather
+    than a second implementation of the same idea. The sentence above -- that
+    if the two disagree sheni is right and this crate is broken -- is then
+    enforced by there being one struct, not by review. Reading a declared
+    struct is sheni's struct read, and the type-expression grammar that parses
+    `list<Order_line>` is sheni's grammar with this layer's name resolution
+    supplied, per ADR sheni_04.
+
+    Backing values on a declared enum are always explicit, as they are in the
+    curated library. There is no implicit numbering from zero, for the reason
+    ADR sheni_01 refused a default integer width: an implicit value is still a
+    value, just one nobody wrote down, and with auto-numbering a reordering of
+    the variant list silently changes what every stored value means.
+
+    A declared name may not shadow a built-in. A schema cannot define `date`,
+    `u8`, or `address`, so a type name means one thing and resolution never
+    depends on which lookup ran first. The reverse also holds and is the
+    sharper constraint: adding a type to sheni's curated library can break a
+    schema that already uses that name, so every addition under ADR sheni_03
+    is a compatibility event for this crate, not only a new shape.
+
+    Resolution is a pass over the whole schema, run once when it is loaded,
+    not lazily when a document happens to reach a field. A schema that names a
+    type nothing defines is broken whether or not any document exercises it,
+    and reporting that as a document error blames the wrong input.
+
+    Definitions may refer to each other, including cyclically. A cycle every
+    path of which runs through required struct fields describes a value that
+    cannot be finite, and is rejected during resolution. A collection breaks a
+    cycle, because an empty list terminates -- which is why ADR sheni_04 was
+    careful to say an empty collection is a valid value.
+
+    An optional field does not break a cycle, which an earlier draft of this
+    record had wrong. ADR sheni_03 settled that optional means falling back to
+    the type's own value, and that a struct has a fallback only when every one
+    of its fields does. A cyclic definition therefore has no fallback to
+    compute -- working one out requires the very type being defined -- so it
+    cannot appear as an optional field in the first place, and the cycle is
+    still there for the required-field check to reject. A collection remains
+    the only thing that breaks one.
+
+    Errors take the 501-599 band that ADR sheni_05 reserved, and they divide
+    in two. A schema that does not resolve is a defect in the schema, reported
+    with no document in hand and no path. A document that does not match a
+    resolved schema is reported exactly as sheni reports one, with the same
+    codes and the same path. Keeping those apart matters because they have
+    different audiences.
+  consequences:
+    positive:
+      - An application declares the types the curated library will never hold, without waiting for an ADR or a release.
+      - A schema being data means validation can be shipped, versioned, and changed independently of the binary that enforces it, which is the capability that made the idea worth keeping.
+      - Declared types compose with built-in ones, so a schema starts from a vocabulary rather than from primitives, and two applications still agree on the parts that came from sheni.
+      - Reusing sheni's enum and struct wholesale means that machinery is exercised against a fixed, in-tree set before it ever meets a definition from outside.
+      - Resolving eagerly turns a broken schema into an error about the schema, at load, rather than an error about whichever document first reached the broken field.
+    negative:
+      - This crate carries the name environment, the resolution pass, and the cycle detector, which is far more machinery than a lookup, and a class of error that has nothing to do with any document.
+      - Cycle detection is a graph problem, and an over-strict rule rejects legitimate recursive schemas such as a tree of nodes.
+      - Growing sheni's curated library can break a schema that had claimed the same name, so the two layers are coupled in a direction that is easy to forget.
+      - A schema supplied at runtime is input, and everything that is true of parsing untrusted input becomes true of loading one.
+  alternatives-rejected:
+    -
+      name: Define types in Rust, with a derive macro over existing structs
+      reason: Idiomatic and less code, but a schema compiled into the binary cannot be supplied by a user, versioned separately, or read alongside the file being validated. That is the entire capability this layer exists to provide.
+    -
+      name: Reuse serde's Deserialize as the struct mechanism
+      reason: Rejected for the reason ADR sheni_01 rejected `serde_json::Value` as the value model. Serde is a codegen path from a known Rust type, and here there is no known Rust type.
+    -
+      name: Give this layer its own enum and struct semantics, tuned for declared types
+      reason: Two answers to what a struct is, differing in ways nobody would document. The point of this layer is a different source for the same shapes, and a divergence would make the library and the schema untranslatable to each other.
+    -
+      name: Let a declared type shadow a built-in of the same name
+      reason: It would make resolution order observable, and it would let a schema quietly redefine `date` for every document read against it. Reserving the built-in names costs a rename and buys one meaning per name.
+    -
+      name: Resolve type names lazily, the first time a document reaches one
+      reason: It turns a defect in the schema into an error about a document, blames the wrong input, and surfaces only if some document happens to exercise that field.
+    -
+      name: Detect cycles lazily, when a document happens to recurse
+      reason: The same fault as lazy resolution, with the added property that it only appears once a document is deep enough to hit it, which may be in production.
+    -
+      name: Adopt JSON Schema, or a subset of it, instead of a SYON schema
+      reason: It would bring an ecosystem, and it brings a validation language far larger than a type system, with constraint keywords ADR sheni_04 deliberately refused. A schema written in SYON is also the project dogfooding its own format, as ADR syon_01 did for the ADRs themselves.

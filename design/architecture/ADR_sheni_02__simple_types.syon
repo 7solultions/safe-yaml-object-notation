@@ -1,0 +1,134 @@
+architecture-decision-record:
+  identifier: "sheni_02"
+  title: Simple types delegate to the standard crates, and reading them normalises
+  status: accepted
+  date: "2026-08-28"
+  deciders:
+    - felix
+  superseded-by: ""
+  context: |
+    ADR sheni-0001 fixed the primitive group and, with it, a rule: a literal
+    is checked against a closed set of accepted forms, never guessed at. That
+    rule is easy to hold when the forms are decimal digits and four boolean
+    spellings. The simple group is where it gets expensive.
+
+    A simple type is an interpretation laid over a primitive carrier -- a
+    date, an email address, a URL. Every one of them is governed by a
+    published standard, and every one of those standards is bigger than it
+    looks. RFC 5322 addressing, the WHATWG URL algorithm, and RFC 5952's
+    canonical IPv6 text form are each a project on their own, and a
+    hand-written approximation of any of them is a bug waiting to be found by
+    the first address or address-shaped thing that does not fit the
+    approximation.
+
+    The crate README already names a crate per standard. Taking those crates
+    at their word is the obvious move, but it is not a free one: they were
+    written to be permissive where the standards are permissive, and a probe
+    of each one turned up spellings this project would not otherwise accept.
+    The `time` crate reads `+2026-08-28` as an expanded year. The `uuid`
+    crate reads braced, URN, and unhyphenated forms alongside the canonical
+    one. RFC 3339 itself sanctions a lowercase `t` separator and a trailing
+    space. Delegating validation means inheriting all of that unless
+    something is done about it.
+
+    There is also a conflict inside the README to settle. Its outline writes
+    a time as `THH:MM:SS`, with a leading designator; its standards table
+    writes `14:30:00`, without one. Both cannot be the accepted form.
+  decision: |
+    Implement fourteen simple types, each an interpretation over the `string`
+    carrier, and delegate validation to the crate the README's standards
+    table names for that standard. Where the table lists alternatives, pick
+    one: `time` rather than `chrono`, because this layer never needs a system
+    clock, a local timezone, or a timezone database, and `time` with default
+    features off carries none of that machinery.
+
+    Delegation is qualified by two rules.
+
+    First, Sheni pre-checks what a delegate would wave through but
+    sheni-0001 has already ruled out. A leading `+` on a date is rejected:
+    sheni-0001's leading-plus rule is about any number-shaped literal, and a
+    year is one. A UUID must be in the canonical hyphenated form, so the
+    braced, URN, and unhyphenated spellings the `uuid` crate also accepts are
+    rejected -- and rejected with their own code, distinct from malformed
+    input, because they are recognisable and wrong rather than unreadable.
+
+    Second, reading a simple type normalises, and that is a real difference
+    from the layer below. A primitive value is the text, so the text is
+    preserved exactly. A simple value is the thing the text denotes, so what
+    is preserved is the meaning, and the canonical form is what Sheni emits
+    back. `2001:0DB8::1` reads as `2001:db8::1` per RFC 5952, `90m` reads as
+    `1h 30m`, and `https://example.com` reads as `https://example.com/`
+    because the WHATWG algorithm says the path is there whether it was typed
+    or not. None of these changes what the value is; requiring the input text
+    to survive unchanged would reject `2026-08-28T14:30:00.500Z`, whose
+    trailing zero is correct, and that is too high a price for a tidier rule.
+
+    Duration is three types, not one: `duration` for the IEC 61131-3 form the
+    README's outline gives (`T#5s500ms`), `duration_iso` for ISO 8601
+    (`P1DT2H30M`), and `duration_human` for the humantime convention
+    (`1h30m`). A single type sniffing which of the three it had been handed
+    would be exactly the guessing sheni-0001 exists to prevent. The IEC form
+    is hand-written, as the standards table predicted, since no established
+    crate implements it.
+
+    `time` takes `HH:MM:SS`, resolving the README's internal conflict in
+    favour of the standards table, which is the half that names the standard.
+    `timestamp` is implemented although the outline omits it, because the
+    table names it and RFC 3339 is what most schemas actually reach for.
+
+    `id` is not implemented as a type. The outline pairs it with UUID and
+    describes it as based on an integer or a string, which makes it a role a
+    field plays rather than a shape a value has. The carrier type the schema
+    declares is the validation; there is nothing left for an `id` type to
+    check. `uuid` is the type.
+
+    `file_name`, `path`, and `language` are hand-written, the table naming no
+    crate for them, and all three are text-shape checks only -- nothing in
+    this layer touches a filesystem or resolves a name.
+
+    `language` follows the outline's `en` and `en.EN`. This is a divergence
+    worth stating plainly rather than leaving in a table. BCP 47 writes a
+    language and region as `en-GB`, with a hyphen and a real region subtag;
+    the README writes `en.EN`, with a dot and a region that is not a country
+    code. The specification given is the one implemented, but a document
+    written today with `en.EN` will not be readable by anything that speaks
+    BCP 47, and this is the decision here most likely to be superseded.
+
+    Errors take the 201-299 band. Where a failure mirrors one in the
+    primitive band, it takes the mirrored low digits and carries its band in
+    its name, so `SimpleLeadingPlus` at 206 sits under `LeadingPlus` at 106.
+  outcome: |
+    Probing the delegates before writing this down was what turned it from a
+    one-line decision into a qualified one. Three of the seven crates accept
+    input that would have walked straight past the discipline sheni-0001
+    established, and none of that is visible from the standards table alone.
+  consequences:
+    positive:
+      - A standard is implemented by the people who implement that standard, and an address that RFC 5322 permits is accepted whether or not anyone here anticipated it.
+      - The pre-checks are few and named, so what Sheni adds on top of a delegate is a short list a reader can audit rather than a reimplementation to review.
+      - Splitting duration three ways means a schema says which convention it means, and a document written for one convention cannot be silently read as another.
+      - Normalising on read gives every simple value one canonical text form, which makes comparison and round-tripping well defined without a per-type equality rule.
+    negative:
+      - Seven third-party crates are now a compatibility surface. A permissive change in any of them widens what Sheni accepts, and nothing but the pinned tests will notice.
+      - Normalising means the text a document was written with is not always the text it reads back as. That is a genuine surprise for anyone expecting the verbatim behaviour of the primitive layer.
+      - The IEC 61131-3 parser is ours, so it is the one duration form with no upstream to defer to and the one most likely to disagree with a PLC toolchain.
+      - Following the README on `language` ships a form that no other tool will recognise. It is the decision here most likely to be superseded.
+  alternatives-rejected:
+    -
+      name: Hand-write every validator instead of taking dependencies
+      reason: An approximation of RFC 5322 or the WHATWG URL algorithm is a defect surface with no upper bound, and the README already named the crates. The dependency cost is real but it is smaller than the correctness cost.
+    -
+      name: chrono rather than time for date, time, and timestamp
+      reason: Both parse what is needed. `time` with default features off pulls in no local-timezone or system-clock machinery, none of which this layer uses, and its parsing is strict about component widths without extra configuration.
+    -
+      name: One duration type that detects which of the three forms it was given
+      reason: Format sniffing is the guessing sheni-0001 rejected, one level up. `PT1M` and `1m` differing in meaning by a factor of sixty is the kind of thing a sniffer gets wrong quietly.
+    -
+      name: Require the input text to survive a read unchanged, for every type
+      reason: It would reject correct input -- a trailing zero in a fractional second, a URL written without its root path, an uppercase hex group in an IPv6 address. Strictness that rejects conforming documents is not strictness, it is a bug.
+    -
+      name: Implement `id` as a simple type
+      reason: The outline defines it as being carried by an integer or a string, which is a statement about which carrier a schema picks, not a constraint to check. An `id` type would have no validation to perform.
+    -
+      name: BCP 47 for the language type
+      reason: It is the right standard and it is not what the README specifies. Following the specification given, and recording the divergence loudly, keeps the decision visible instead of quietly overriding it.

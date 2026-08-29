@@ -1,0 +1,11 @@
+[package]
+name = "hodesh_types"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "hodesh_types"
+path = "src/lib.rs"
+crate-type = ["cdylib", "staticlib", "rlib"]
+
+[dependencies]

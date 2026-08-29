@@ -1,0 +1,108 @@
+architecture-decision-record:
+  identifier: "hodesh_03"
+  title: The year is Metonic, and the leap month is appended as month 13 rather than inserted
+  status: proposed
+  date: "2026-08-29"
+  deciders:
+    - felix
+  superseded-by: ""
+  open-questions:
+    - The Metonic cycle runs about two hours long over nineteen solar years, so the calendar drifts later through the seasons by one day per 220 years as implemented. Whether hodesh ever corrects that is unanswered and is its next real drift.
+    - A correction cannot be made in days, because ADR hodesh_02 makes a month a lunation and leaves no spare day to insert or remove. The only lever is omitting an intercalation, which moves the year by a whole month at once, and the drift needs some 340 cycles to accumulate that much.
+    - Whether replacing the Metonic cycle with the next convergent of the months-per-year ratio, 334 years and 4131 months with 123 leap years, is worth its cost. It reduces the drift to one day per 11554 years and gives up both the nineteen-year structure and the Hebrew lineage.
+    - Whether the leap distribution should stay the Hebrew calendar's 3, 6, 8, 11, 14, 17, 19 or be recomputed from scratch to minimise the wander of the new year, which would give a slightly different set.
+    - Whether a year should carry an accessor for its own length, given that a caller cannot know whether a year has 354 or 355 days without asking.
+    - Whether month 13 should have a distinct status in the API rather than being an ordinary month that sometimes exists, since a consumer iterating months has to ask the year how many there are.
+    - Whether the calendar should offer a season or solstice accessor, since the year is solar in aggregate but no month is pinned to an equinox.
+  context: |
+    Twelve lunations are 354 days. A solar year is 365.2422 days. A calendar
+    that wants months to follow the moon and years to follow the sun has to
+    absorb the eleven-day difference somewhere, and it cannot do it by adding
+    loose days, because ADR hodesh_02 defines a month as a lunation and a
+    stray day inserted between months would break that definition on the spot.
+
+    An earlier draft of this design did propose loose days -- twelve months
+    plus eleven intercalary days belonging to no month -- and it was rejected
+    in favour of a leap month. The reason is worth recording because the
+    rejected option is superficially tidier: with loose days, every year has
+    exactly twelve months and every year is exactly a solar year. But the
+    eleven days would sit between the last new moon of one year and the first
+    of the next, so month 1 would no longer begin at a new moon. The calendar
+    would be solar in the large and no longer lunar at all.
+
+    The only way to keep both properties is to add a whole month, which means
+    some years have thirteen. That is what every surviving lunisolar calendar
+    does, and the question is only how often and where.
+  decision: |
+    The Metonic cycle. Nineteen years hold 235 months, because 235 lunations
+    are 6939.69 days and 19 solar years are 6939.60 days -- an agreement to
+    within about two hours, which is the closest small whole-number
+    coincidence between the two cycles and the reason every lunisolar calendar
+    that lasted has found it.
+
+    Seven of the nineteen years have a thirteenth month, at cycle positions 3,
+    6, 8, 11, 14, 17 and 19. This is the Hebrew calendar's own distribution,
+    kept because it spreads seven intercalations across nineteen years about
+    as evenly as seven into nineteen can be spread, and because there is no
+    reason to compute a different set merely to avoid using this one.
+
+    The leap month is month 13, appended at the end of the year. The Hebrew
+    calendar inserts its leap month before the last month instead, so that the
+    named festival months keep their names and their seasons. Hodesh has no
+    named months and no festivals, so there is nothing to protect, and
+    appending has a property inserting does not -- months 1 through 12 sit at
+    the same position in the year whether or not the year is a leap year. A
+    consumer that only cares about the first twelve months never has to ask.
+
+    Year lengths follow from this rather than being stated: a common year is
+    354 or 355 days and a leap year is 383 or 384, depending on where the
+    lunations fall. A cycle is 6939 or 6940 days. None of these are fixed
+    because none of them are the rule -- ADR hodesh_02's lunation is the rule,
+    and this record only decides how many months a year holds.
+
+    What this buys is a year that tracks the sun in aggregate without any
+    month being pinned to it. The new year wanders across about a month of the
+    Gregorian calendar and comes back, which is the defining behaviour of a
+    lunisolar calendar and not a defect in this one. A calendar that wanted a
+    fixed seasonal new year would have to give up the lunar month, and that
+    trade was refused when the loose-day design was refused.
+
+    The cycle is anchored so that hodesh year 0 is position 0, which makes the
+    leap positions a plain remainder of the year number and requires no table
+    lookup keyed on an era.
+  consequences:
+    positive:
+      - Months keep beginning at new moons in every year including leap years, which the loose-day design would have broken at every year boundary.
+      - The year tracks the sun to within about two hours per nineteen years, so the calendar does not drift through the seasons the way a purely lunar one does.
+      - Appending the leap month keeps months 1 to 12 at fixed positions in every year, so a consumer that ignores month 13 needs no special case.
+      - The leap rule is a remainder on the year number against a table of nineteen booleans, which is computable by hand and identical in every implementation.
+      - Nothing about year length is stated as a rule, so the year cannot contradict the month rule it is derived from.
+      - Using the Hebrew distribution rather than inventing one keeps the calendar recognisably a variant rather than a rewrite, which is what it was asked to be.
+    negative:
+      - Years vary in length by a whole month, so a year is not a useful unit for anything that needs a fixed duration, and a yearly budget or quota has to say which year it means.
+      - The new year wanders across about a month of the Gregorian calendar, so hodesh and Gregorian year boundaries never line up and never will.
+      - The number of months in a year is not a constant, so any code iterating months has to ask the year first, and code that assumes twelve is wrong seven times in nineteen.
+      - The Metonic cycle runs two hours long over nineteen years, so the new year drifts later through the seasons by a day every 220 years -- two orders of magnitude smaller than what was fixed, but not zero, and not yet addressed.
+      - Appending the leap month means month 13 falls at a different season each leap year, so it is the one month with no stable relationship to anything.
+  alternatives-rejected:
+    -
+      name: Twelve months plus eleven intercalary days outside any month
+      reason: The earlier draft of this design. The loose days would sit between two new moons, so month 1 would stop beginning at a new moon and the calendar would cease to be lunar. It keeps the year tidy by discarding the property the calendar exists for.
+    -
+      name: A thirteenth month of 28 days, from the first sketch of this calendar
+      reason: 28 days is neither a lunation, 29.53 days, nor a quarter of anything astronomical. It is four weeks, which makes for a fine fixed-week calendar and an incoherent lunar one.
+    -
+      name: Insert the leap month before the last month, as the Hebrew calendar does
+      reason: That placement exists to keep named festival months in their seasons. Hodesh has neither names nor festivals, so it would inherit the complication without the reason, and would move months 12 and 13 relative to the year.
+    -
+      name: An 8-year, 11-year or 17-year intercalation cycle
+      reason: All are far worse fits than the Metonic 19, because 7/19 is a convergent of the months-per-year ratio and none of them are near one. Seventeen years is the worst of the three -- six leap years gives a year 0.45 days short and seven gives one 1.28 days long, drifting a full day in two years and in one year respectively, against 219 for the Metonic cycle.
+    -
+      name: A 334-year cycle of 4131 months with 123 leap years
+      reason: The next convergent after 19, and genuinely more accurate -- one day of drift in 11554 years rather than 219. Rejected for now because the gain is below the noise floor of its own inputs, the tropical year and the lunation both changing over any span where the difference would show, and because it replaces a rule that can be worked out by hand with a table of 334 entries.
+    -
+      name: Compute a fresh leap distribution rather than reusing 3, 6, 8, 11, 14, 17, 19
+      reason: The Hebrew distribution is already close to the most even spread of seven into nineteen. Choosing a different set to avoid reusing this one would be a change made for its own sake, and hodesh is meant to be a variant.
+    -
+      name: Decide leap years by comparing the new year against an equinox
+      reason: It would pin the calendar to the sun more tightly, at the cost of requiring an astronomical computation to know whether next year has thirteen months. ADR hodesh_02 already refused that trade for months, and the same reasoning applies to years.

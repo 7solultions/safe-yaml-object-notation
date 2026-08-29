@@ -1,0 +1,108 @@
+architecture-decision-record:
+  identifier: "hodesh_02"
+  title: The month is the mean lunation, and the 29/30 alternation is its consequence rather than its rule
+  status: proposed
+  date: "2026-08-29"
+  deciders:
+    - felix
+  superseded-by: ""
+  open-questions:
+    - Whether the mean lunation is the right delegate at all, or whether a calendar claiming to be scientific should compute true new moons and accept that its month lengths stop being predictable by hand.
+    - The mean lunation itself shortens by roughly half a second per century as the Moon recedes, so the constant is correct for an era rather than for all time. Whether hodesh ever revises it, and what a revision does to dates already written, is unanswered.
+    - Whether the calendar should state a validity range and refuse dates outside it, rather than extending a constant of the present era across all of history the way the proleptic Gregorian calendar extends its own rule.
+    - Whether day 30 of a short month should be an error, as it is now, or should normalise forward to day 1 of the next month the way some date libraries do.
+    - Whether the moon_age accessor is worth its surface, given it is day minus one and says nothing the day number does not.
+  context: |
+    Hodesh was specified as a variant of the Hebrew calendar with numbered
+    months, where odd months have 29 days and even months have 30, and a month
+    starts with the new moon. Those two clauses look like one rule and are in
+    fact two, and they disagree.
+
+    An alternation of 29 and 30 gives a mean month of exactly 29.5 days. A
+    real lunation is 29.530588853 days. The gap is small and it accumulates
+    without bound: 0.03 days a month is 10.7 days every 19 years, so within
+    three centuries a calendar following the alternation would begin its
+    months at the full moon while still calling them new. The clause that says
+    a month starts with the new moon would be false, and nothing in the
+    calendar would notice.
+
+    So the two clauses cannot both be the rule. One of them has to be the
+    definition and the other has to be a description of what the definition
+    produces.
+
+    This is not a new problem and there is a known answer. Every arithmetic
+    lunar calendar that survived -- the Hebrew calendar included -- defines
+    months by accumulating a mean lunation and takes whatever lengths fall
+    out, rather than by fixing lengths and hoping they track the sky.
+  decision: |
+    The mean lunation is the definition. Month lengths are what it produces.
+
+    Month index m begins on the day containing mean new moon m, counted from
+    the epoch:
+
+      start of m  =  epoch  +  floor of m times 29.530588853
+
+    That one line is the whole month rule. A month's length is the difference
+    between consecutive starts, which is always 29 or 30 days because the
+    lunation is between the two.
+
+    What it produces is the alternation that was asked for. Months come out
+    29, 30, 29, 30 -- odd short, even long -- with an extra long month roughly
+    every 33 months to absorb the remainder. Over a full 19-year cycle of 235
+    months that is 124 long months and 111 short ones, seven more long months
+    than a strict alternation would give, and 6939 days rather than 6932. The
+    specified pattern is preserved everywhere except where preserving it would
+    have meant losing the moon.
+
+    The constant is 29.530588853 days, the modern mean synodic month, held as
+    an integer count of billionths of a day so that the arithmetic is exact
+    and a date computed today matches one computed on another machine.
+
+    It is deliberately not the Hebrew calendar's molad interval of 29 days, 12
+    hours and 793 parts. That value is 29.530594 days, long by about half a
+    second a month, which is a known error that has accumulated to roughly
+    four days since the interval was fixed. Inheriting it would mean adopting
+    a drift on purpose, and the whole point of departing from the Hebrew
+    calendar here is to keep the astronomy and drop the inheritance.
+
+    It is also deliberately the mean lunation rather than the true one. True
+    new moons vary by up to about thirteen hours either side of the mean, so a
+    calendar built on them cannot be computed by hand, cannot be printed years
+    ahead without an ephemeris, and turns a calendar into a lookup table. The
+    mean lunation is the right kind of approximation -- it is wrong about any
+    single month by a fraction of a day and right about every century.
+
+    A day of the month is therefore the age of the moon. Day 1 is the new
+    moon, day 15 is near full, and this is true in every month of every year
+    without exception, which is the property the calendar is built to have and
+    the one a fixed alternation would have quietly given up.
+  consequences:
+    positive:
+      - The clause that a month begins at the new moon stays true for as long as the calendar is used, rather than for the first few centuries.
+      - The alternation asked for is what the calendar produces, so nothing was traded away to get the correctness.
+      - The day of the month is the age of the moon everywhere and always, which makes the calendar readable off the sky and not only off a page.
+      - The rule is one line of integer arithmetic, so it can be reimplemented from this record in any language without a table, and two implementations cannot disagree.
+      - Holding the constant as billionths of a day keeps the arithmetic exact, so there is no floating-point rounding to make a date machine-dependent.
+      - Rejecting the molad interval removes an inherited error of about four days rather than carrying it forward out of deference.
+    negative:
+      - Month lengths are not a function of the month number, so no one can state them from memory and a printed table or an implementation is required to know whether a month has 29 days or 30.
+      - The extra long month lands where the moon puts it rather than at a memorable place, so the pattern has no short verbal description.
+      - The mean lunation is not the true one, so an individual month can begin up to about half a day away from the actual new moon, and an observer will occasionally disagree with the calendar.
+      - The constant is right for the present era and slowly wrong outside it, which makes dates far in the past or the future approximate in a way the calendar does not currently declare.
+      - Deriving lengths rather than fixing them means a date validity check has to compute the month, which is more work than a lookup and has to be done before a date can be trusted.
+  alternatives-rejected:
+    -
+      name: Fix odd months at 29 days and even months at 30, as first specified
+      reason: A mean month of exactly 29.5 days drifts 10.7 days from the moon every 19 years. Within three centuries the calendar's new moon falls at the full moon, which makes its central claim false. The alternation is kept as an outcome instead.
+    -
+      name: The Hebrew calendar's molad interval of 29d 12h 793p
+      reason: It is 29.530594 days, half a second a month too long, an error that has already accumulated to about four days. Hodesh departs from the Hebrew calendar precisely to drop inherited error, so adopting this one would defeat the exercise.
+    -
+      name: True astronomical new moons
+      reason: They vary by up to thirteen hours either side of the mean, so month lengths become unpredictable, the calendar cannot be computed by hand or printed in advance without an ephemeris, and two implementations with different ephemerides disagree about what day it is.
+    -
+      name: Observed new moons, as the Hebrew calendar originally used
+      reason: An observation depends on where the observer stands and whether it was cloudy, which makes the date local. ADR hodesh_01 already fixed the day boundary at UTC for the same reason.
+    -
+      name: Fix the alternation and add a correction month on a stated cycle
+      reason: This is the same arithmetic as accumulating the lunation, written as two rules that can fall out of step instead of one that cannot. The correction cycle would also have to be derived from the lunation, so the lunation is the real rule either way.

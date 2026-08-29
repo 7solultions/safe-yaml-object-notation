@@ -1,11 +1,11 @@
 architecture-decision-record:
-  identifier: "0006"
+  identifier: "syon_06"
   title: Phase1 report uses its own block numbering, distinct from the grammar spec
   status: superseded
   date: "2026-07-11"
   deciders:
     - felix
-  superseded-by: "0007"
+  superseded-by: "syon_07"
   context: |
     The phase1 analyzer (crates/syon-parser/src/phase1.rs, syon-go/phase1.go,
     the syon phase1 and go run ./cmd/phase1 subcommands) evaluates a

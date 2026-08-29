@@ -1,0 +1,160 @@
+architecture-decision-record:
+  identifier: "sheni_06"
+  title: A date that is not fully known is a type, not a date field that might be missing
+  status: accepted
+  date: "2026-08-29"
+  deciders:
+    - felix
+  superseded-by: ""
+  context: |
+    ADR sheni_03 settled optionality on a rule that is deliberately narrow:
+    a field may be optional only where its type has a fallback, and no simple
+    type has one. `date` therefore cannot be an optional field, and the record
+    says why -- making it optional would mean nominating a sentinel, an epoch
+    date standing for nothing, which is a real value of the type that some
+    document will eventually mean literally.
+
+    That rule is right and it leaves a gap, and the gap is not hypothetical.
+    A task due "sometime in August", a milestone in "Q3", an item with no date
+    yet, a deadline of "by the end of the year" -- planners and task trackers
+    are full of these, and almost none of them can express one. What they ship
+    instead is a nullable date column, which conflates "not scheduled" with
+    "not known" with "known only to the month", and then a second column to
+    disambiguate, and then a convention nobody wrote down.
+
+    The mistake those tools make is treating imprecision as an absence. It is
+    not. "August 2026" is not a missing date; it is a date known to a coarser
+    grain, and it can be compared, sorted, filtered, and rolled up. Modelling
+    it as null throws away everything the value actually says.
+
+    There is a published standard for exactly this. ISO 8601-2:2019 Annex A,
+    the Extended Date/Time Format, defines text forms for reduced precision,
+    for uncertainty, for approximation, and for unknown or open interval ends.
+    It is what libraries, archives, and catalogues have used for a decade to
+    say "about 1920" without lying about the day.
+  decision: |
+    A new simple type, `soft_date`: a date that may be known to any precision,
+    or flagged uncertain or approximate, or not known at all.
+
+    It belongs to group 2 by ADR sheni_03's own fourth inclusion criterion --
+    it is one scalar with a constrained text form, which is the definition of
+    a simple type rather than a composite one. It follows ADR sheni_02 in
+    every respect: the carrier is `string`, reading normalises to the
+    standard's canonical form, and validation is delegated rather than
+    hand-rolled.
+
+    The delegate is `edtf-core`. It implements ISO 8601-2:2019 Annex A
+    directly, formats canonically, and is `no_std` with zero dependencies
+    under MIT or Apache-2.0. The alternative on crates.io pulls in `chrono`,
+    which ADR sheni_02 already declined in favour of `time`, and is licensed
+    MPL-2.0.
+
+    What is accepted is defined by shape rather than by conformance level.
+    EDTF has four kinds of value -- a date, a date with a time of day, an
+    interval, and a set -- and `soft_date` is the date, at whatever level the
+    date happens to reach. That admits the complete day, the year and month,
+    the bare year, unspecified digits, and the uncertain and approximate
+    qualifiers, and it admits the sub-year groupings, which occupy the month
+    slot with a code from 21 to 41. Codes 33 to 36 are the calendar quarters,
+    so "Q3 2026" is a `soft_date` and needs nothing invented for it. Seasons,
+    quadrimesters and semesters come along in the same slot.
+
+    Sets are excluded, and only sets. A set of candidate dates is written with
+    square brackets for "one of" and braces for "all of", and both characters
+    are forbidden constructs in SYON, with ADR syon_08 recording that the Rust
+    and Go implementations disagree about a scalar beginning with one. A set
+    is therefore not merely unsupported here; it is unwritable, and a document
+    containing one would parse in one implementation and fail in the other.
+    This is the second time that collision has decided a syntax question,
+    ADR sheni_04 being the first.
+
+    An earlier draft of this record drew the line at conformance level 1
+    instead, which reached the same conclusion about sets by a much cruder
+    route and threw away the quarters with them. It is worth naming the
+    correction, because the principle it violated is one this project keeps
+    returning to: the boundary is what SYON can carry, and a level is not that
+    boundary. Every level 2 construct other than a set -- the sub-year
+    groupings, qualification of individual components, significant digits --
+    is written in digits and hyphens and is perfectly writable. Excluding them
+    would have been a decision nobody made on purpose.
+
+    A date with a time of day is excluded too, for a different reason: sheni
+    already has `timestamp`, and two spellings of one thing is the position
+    ADR sheni_02 refused when it declined to let a duration sniff its own
+    convention.
+
+    `soft_date` is the first simple type with a fallback, and it earns one
+    structurally rather than by exception. Its value space contains a fully
+    unspecified date, which is a member of the type meaning "not known" and
+    not a legal date borrowed to stand for nothing. That is precisely the
+    distinction ADR sheni_03 drew when it refused sentinels, so an optional
+    `soft_date` field is admissible where an optional `date` field is not.
+
+    Which is the general shape of the answer, and worth stating as such:
+    where a value may genuinely be unknown, the fix is a type whose value
+    space includes the unknown, not a field that might be missing. Absence
+    handled in the type is comparable, serialisable, and the same for every
+    consumer. Absence handled by the field is a hole each consumer fills
+    differently.
+
+    `date` is left exactly as it is. A type that accepted both a complete
+    date and a vague one would make every consumer handle imprecision,
+    including the ones whose field is a settled calendar day, and a field
+    declared `date` should be a promise that the day is known.
+
+    The interval is deferred to a sibling, `soft_date_range`, with its own
+    record. EDTF expresses a range including one with an open or unknown end,
+    and "from now until whenever" is a real planning need, so this is a
+    deferral and not a refusal. But a range is a pair and a date is a point,
+    and folding them into one type would make a `soft_date` value sometimes
+    each, which every comparison would then have to branch on. Both delegate
+    to the same crate and share the same text forms; they differ in what they
+    are.
+
+    Errors continue the simple band: text that is not EDTF at all takes 234,
+    and a set takes its own code at 235 rather than being reported as
+    malformed, because the document is not wrong so much as outside what SYON
+    can carry, and saying so is the difference between a fixable message and a
+    baffling one. A third code, 236, was added by ADR sheni_10 for well-formed
+    EDTF of a shape this type does not keep -- an interval, or a date with a
+    time of day -- with a message naming the type the author wanted. An
+    earlier draft of this paragraph described 235 as a level 2 construct,
+    which was the discarded level-based rule leaving a trace behind.
+  consequences:
+    positive:
+      - Imprecision stops being modelled as absence, so "August 2026" keeps its meaning instead of arriving as a null and a comment.
+      - An optional date becomes expressible without weakening `date` or nominating a sentinel, which is what ADR sheni_03's rule was protecting.
+      - A published standard defines the text form, so two applications exchanging a soft date agree on what it says without negotiating anything.
+      - The delegate is `no_std` with no dependencies, so the cost of the type is small and the canonical form is the standard's rather than ours.
+      - The exclusion is discovered rather than chosen, since a set is unwritable in SYON, which means nothing was traded away to get it.
+      - Quarters fall out of the standard's sub-year codes rather than being invented, so "Q3 2026" is expressible without a second type or a convention.
+      - Drawing the boundary at what SYON can carry, rather than at a conformance level, keeps every other construct the standard defines and needs no revisiting as the crate matures.
+    negative:
+      - A second date type is a question every schema author now has to answer, and some will pick `soft_date` because it is more permissive rather than because the date is genuinely soft.
+      - EDTF is not widely known outside libraries and archives, so the text forms will be unfamiliar even though the standard is not new.
+      - Sets are excluded permanently rather than pending, because the obstacle is SYON's forbidden constructs and not the parser's maturity.
+      - Accepting the sub-year codes means a value in the month slot is sometimes a month and sometimes a grouping, which every consumer that reads the parts rather than the whole has to know.
+      - Deferring intervals leaves the open-ended deadline unexpressible for now, which is one of the cases that motivated the type.
+      - The fallback makes `soft_date` the only simple type an optional field may use, which is a rule with a single member until another type earns one.
+  alternatives-rejected:
+    -
+      name: Let a `date` field be optional after all, with an epoch date as the fallback
+      reason: The sentinel objection in ADR sheni_03 applies unchanged. An epoch date is a real date some document means literally, and a consumer cannot tell the two apart. It also answers only the absence case and says nothing about a date known to the month.
+    -
+      name: Widen `date` to accept reduced precision, rather than adding a type
+      reason: Every consumer of every date field would then have to handle a value that might be a year, including the ones whose field is a settled day. A field declared `date` should promise the day is known.
+    -
+      name: A struct with a date and a precision field, in group 3
+      reason: It is one scalar with a constrained text form, which ADR sheni_03's fourth criterion says is a simple type. A struct would also invent a shape where a published standard already defines one, and lose the canonical text form that makes the value portable.
+    -
+      name: Support the full EDTF grammar, including sets
+      reason: Sets are written with square brackets and braces, both forbidden constructs in SYON, and per ADR syon_08 the Rust and Go implementations disagree about a scalar beginning with one. The value would be unwritable rather than merely unsupported.
+    -
+      name: Cap acceptance at EDTF conformance level 1, which excludes sets
+      reason: This record's own first draft. It reaches the right answer about sets by the wrong route, and takes the quarters, the component qualifiers and the significant digits with it. The boundary is what SYON can carry, not what a level number contains.
+    -
+      name: The `edtf` crate rather than `edtf-core`
+      reason: It reaches for `chrono`, which ADR sheni_02 already declined in favour of `time`, and it is MPL-2.0 where `edtf-core` is MIT or Apache-2.0 with no dependencies at all.
+    -
+      name: Include intervals now, since an open-ended deadline is the motivating case
+      reason: A range is a pair and a date is a point, and one type that is sometimes each makes every comparison branch. It is a sibling type with its own record, not a widening of this one.

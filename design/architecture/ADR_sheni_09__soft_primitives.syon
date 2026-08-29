@@ -1,0 +1,116 @@
+architecture-decision-record:
+  identifier: "sheni_09"
+  title: Every primitive gets a soft twin except `string`, which cannot spell its own unknown
+  status: accepted
+  date: "2026-08-29"
+  deciders:
+    - felix
+  superseded-by: ""
+  context: |
+    ADR sheni_08 settled what `soft_` means and left the family at two members
+    with a third deferred. It also said the rule tells you when not to write
+    one, and expected the family to stay small.
+
+    Applying the rule to the primitive group says otherwise, and the reason is
+    in ADR sheni_03. That record gave the numerics a fallback of zero, and
+    called it an identity rather than a sentinel. ADR sheni_08 then drew the
+    line that makes an identity acceptable: the empty string is also what "set
+    to nothing" means, so nothing is lost when absence and emptiness coincide.
+
+    Zero does not pass that test. Zero is an answer. A count of zero items, a
+    balance of zero, a temperature of zero -- each is a fact somebody
+    established, and none of them means nobody looked. An optional `u8` field
+    falling back to zero is the same conflation ADR sheni_03 refused for
+    `bool`, admitted for the numerics because zero looked empty enough.
+
+    So the gap ADR sheni_06 and ADR sheni_07 each closed for one type is open
+    across most of group 1, and the closure is the same closure every time.
+    That is a family, not three special cases.
+  decision: |
+    A soft twin for every primitive whose unknown can be written without
+    taking a value away from the type. That is fifteen of the sixteen:
+    `soft_bool`, `soft_u8` through `soft_u128`, `soft_i8` through `soft_i128`,
+    `soft_f32`, `soft_f64`, `soft_byte`, and `soft_char`.
+
+    The unknown is spelled `unknown`, case-insensitively, as `bool` already
+    accepts its own spellings case-insensitively. It reads back canonically
+    lowercase. A soft primitive therefore accepts exactly what its strict twin
+    accepts, plus that one word, and nothing else changes: the same shape
+    rules, the same range checks, the same codes. ADR sheni_08 forbids a
+    `soft_` type from being more lenient, and this family is the test of that
+    rule at scale -- fifteen types, none of which relaxes a single check.
+
+    `soft_string` is not offered, and the exclusion is discovered rather than
+    chosen. `string` accepts any well-formed UTF-8 verbatim, so no text lies
+    outside its value space, so no word can mean "not known" without also
+    being a string somebody meant literally. That is the definition of a
+    sentinel, and ADR sheni_08 forbids exactly it. The second argument arrives
+    at the same place from the other direction: an empty string is a genuine
+    identity by ADR sheni_08's own test, so `string` is the one primitive that
+    did not need a soft twin anyway. A rule that excludes nothing is
+    decoration, and this is the rule doing work.
+
+    The soft twins stay in group 1. Softness is a property of the value space
+    and not a kind, which ADR sheni_08 settled, so a soft primitive is a
+    primitive exactly as `soft_date` is a simple type.
+
+    That places `soft_bool` in group 1, where ADR sheni_07 put it in group 3.
+    ADR sheni_07 is amended rather than superseded, since it is still proposed
+    and everything it decided about the type is unchanged: the same three
+    values, the same order, the same operations. What changes is that it is no
+    longer a bespoke enum. It is the boolean member of a uniform family, and
+    Kleene's `and`, `or` and `not` ship on that member alone.
+
+    The ordering argument survives the move. `false` ranks 0, `unknown` 1, and
+    `true` 2, so `and` is the minimum, `or` the maximum, and `not` the
+    complement against 2. In ADR sheni_07 that ranking was the enum's storage
+    backing; here it is a function over the value. The arithmetic is what
+    mattered, not where the number was kept.
+
+    An unknown value carries the type it is unknown at, so an unknown `u8` and
+    an unknown `bool` are different values. This crate already holds that the
+    type is part of the value rather than something recoverable from it, which
+    is why a `u8` and a `u64` holding seven are not equal, and an unknown that
+    forgot its type would be the one value in the crate that broke the rule.
+
+    Writing `unknown` at a strict type takes its own code, 115, rather than
+    being reported as a malformed boolean or a two-character `char`. The
+    document is not gibberish; it is reaching for a type that exists under
+    another name, and saying so is the difference between a fixable message
+    and a baffling one. The exception is `string`, where `unknown` is text and
+    always was.
+  consequences:
+    positive:
+      - An optional numeric field stops falling back to zero, which was a sentinel that ADR sheni_03 admitted by calling it an identity.
+      - The family is generated from one rule rather than argued type by type, so the fifteenth member costs no decisions the first did not already settle.
+      - A soft primitive accepts its strict twin's forms unchanged, which makes ADR sheni_08's rule that softness is not leniency checkable rather than aspirational.
+      - The `string` exclusion demonstrates the rule has teeth, and it falls out of the type's own definition rather than from a judgement call.
+      - `soft_bool` stops being a bespoke enum and becomes one member of a family, so there is one mechanism for softness in group 1 instead of two.
+      - An unknown carrying its type keeps the crate's existing rule that the type is part of the value.
+      - Reaching for `unknown` at a strict type produces a message that names the type the author wanted.
+    negative:
+      - Group 1 grows from sixteen names to thirty-one, and a schema author now chooses between twins for almost every scalar field.
+      - Some will take the soft twin as a default because it is more forgiving, which is the same pressure ADR sheni_06 and ADR sheni_07 each recorded, now multiplied across the group.
+      - The word `unknown` becomes reserved at fifteen types, so a `char` field can no longer explain a rejection by saying only that a char is one character.
+      - Amending ADR sheni_07's group placement means a record's decision moved while it was still proposed, and a reader of the two records has to notice the amendment.
+      - `soft_string` will be asked for repeatedly, and the answer is a two-step argument rather than a rule anyone will remember.
+      - Kleene's operations now live on one member of a general family rather than on a type of their own, so the family's value enum has methods that are meaningful for one of its fifteen instantiations.
+  alternatives-rejected:
+    -
+      name: Offer `soft_string`, with `unknown` as its unknown
+      reason: It takes the text "unknown" away from a type defined as accepting any text verbatim. That is a sentinel, which ADR sheni_08 forbids, and `string` already has an honest identity fallback in the empty string.
+    -
+      name: Offer `soft_string`, with the unknown reachable only by omitting the key
+      reason: It leaves a member of the value space unwritable, so a document could not say what a schema could declare. A type whose values cannot all be written is worse than a type that is not offered.
+    -
+      name: Keep the family to the types with a demonstrated need, as ADR sheni_08 expected
+      reason: The need is demonstrated for every numeric by the same argument that demonstrated it for `bool`. Picking a subset would mean deciding that some counts may be unknown and others may not, which is a schema author's question and not this crate's.
+    -
+      name: A generic `Soft<T>` over any type, rather than a family over group 1
+      reason: ADR sheni_08 rejected the wrapper as the general model, and that stands -- `soft_date` is not a `date` plus an unknown. Within group 1 the wrapper shape happens to fit, and the implementation is uniform, but the name stays a prefix on a type so the two families read alike.
+    -
+      name: Let empty text mean unknown, so no word has to be reserved
+      reason: Empty text already means an empty `string` and fails everywhere else, and ADR sheni_01 keeps that. Absence of the key is what means unknown, which ADR sheni_03 established, and empty text is a value rather than an absence.
+    -
+      name: Report `unknown` at a strict type as a malformed literal
+      reason: It is the one wrong literal whose author can be told exactly which type they wanted. Spending a code on that is the same call ADR sheni_06 made at 235.

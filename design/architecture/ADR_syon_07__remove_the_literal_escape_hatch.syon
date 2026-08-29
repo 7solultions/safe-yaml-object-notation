@@ -1,5 +1,5 @@
 architecture-decision-record:
-  identifier: "0007"
+  identifier: "syon_07"
   title: Remove the literal escape hatch in favour of YAML block scalars
   status: accepted
   date: "2026-08-21"

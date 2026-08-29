@@ -1,0 +1,130 @@
+architecture-decision-record:
+  identifier: "shlita_01"
+  title: IEC 61131-3 splits into a type vocabulary and a scan runtime, and neither one is a language
+  status: proposed
+  date: "2026-08-29"
+  deciders:
+    - felix
+  superseded-by: ""
+  context: |
+    IEC 61131-3 is the standard for programmable controller programming, and
+    it is the best-fitting outside standard this workspace has taken on. The
+    reason is the habit ADR sheni_10 named: where a standard already answers a
+    question, the answer is looked up rather than decided. IEC 61131-3 answers
+    a great many questions about industrial data types and the operations on
+    them, and it has answered them for thirty years across every vendor.
+
+    Part of it is already here. Sheni's `duration` is IEC 61131-3's TIME
+    literal, `T#5s500ms`, hand-written because no crate implemented it, and
+    the standard already sits in the crate's own standards table.
+
+    But "implement IEC 61131-3" is unbounded until it is scoped, because the
+    standard covers three different kinds of thing at once: a vocabulary of
+    data types, a library of functions and function blocks, and five
+    programming languages. Those are not one subject, and a crate that treats
+    them as one would be three crates wearing a single name.
+  decision: |
+    Two crates, splitting on the same line the workspace has now used twice --
+    between sheni and shelishi, and again between hodesh_types and
+    hodesh_calendar. A lower crate defines the shapes; an upper one supplies
+    the behaviour that only means something in motion.
+
+    They are `shlita_types` and `shlita_runtime`. Shlita is control, or
+    mastery, from the root that gives the biblical verb for having dominion,
+    and it names the domain the way `hodesh` names its own -- a plain word for
+    the subject rather than the number of a standard. Naming the domain rather
+    than the document also leaves room for the parts of this work that are not
+    IEC 61131-3, and ADR shlita_03's language is one: it takes its statements
+    from somewhere else entirely and would sit oddly in a crate called after a
+    standard it only half follows.
+
+    The lower crate holds the elementary types and the standard functions.
+    BOOL. The signed integers SINT, INT, DINT and LINT, and the unsigned
+    USINT, UINT, UDINT and ULINT. The bit strings BYTE, WORD, DWORD and LWORD.
+    REAL and LREAL. TIME, DATE, TIME_OF_DAY and DATE_AND_TIME. STRING and
+    WSTRING. With them come the functions that are pure and total -- the
+    bitwise AND, OR, XOR and NOT, the selection functions LIMIT, SEL, MUX, MIN
+    and MAX, the comparisons, the numeric functions, and the string functions.
+    None of these has state, and every one of them is a function of its
+    arguments alone.
+
+    The upper crate holds the standard function blocks. The bistables SR and
+    RS, the edge detectors R_TRIG and F_TRIG, the counters CTU, CTD and CTUD,
+    and the timers TP, TON and TOF. Each of these retains state between calls
+    and is meaningful only under a cyclic execution model: TON accumulates
+    elapsed time across scans, and asking for its value outside a scan is not
+    a question with an answer.
+
+    The split is the point rather than a tidiness. A function block is
+    behaviour under an execution contract, which is a runtime and not a type.
+    Filing it as a type would repeat exactly the category error ADR sheni_05
+    corrected when it refused to let provenance sit in an enum that classifies
+    by kind. There the two axes were what a type is and where it came from;
+    here they are what a value is and what happens to it over time.
+
+    The scope is the third edition, 2013, restricted to its data types, its
+    standard functions and its standard function blocks. Two things are
+    excluded by name. The object-oriented additions -- classes, interfaces,
+    methods, namespaces -- are language features rather than a type
+    vocabulary, and they are the point at which the standard stops being
+    bounded. The five languages are excluded here because they are ADR shlita_02
+    and ADR shlita_03, not because they are unwanted.
+
+    The lower crate defines its own type and value vocabulary rather than
+    reusing sheni's primitives, and offers conversions instead. Three
+    collisions force this and each is real. `byte` in sheni is one character
+    whose code point fits in a byte; BYTE in IEC is an eight-bit string, and
+    the difference is not cosmetic because the standard lets a bit string be
+    ANDed and an integer not. TIME is signed and admits a fraction on its
+    least significant unit, an underscore between groups, overflow in its most
+    significant unit, and a `TIME#` long form -- all of which sheni's
+    `duration` refuses. And the bit strings are distinct types from the
+    unsigned integers of the same width, which a mapping onto `u8` through
+    `u64` would silently discard.
+
+    `duration` is left exactly as it is, and the IEC time literal becomes a
+    type of the new crate. ADR sheni_02 already refused to let a duration sniff
+    which convention it had been handed, and turned three conventions into
+    three types rather than one permissive one. A fourth is that decision
+    applied again, where widening the third would be that decision reversed.
+
+    Errors take the 701-799 band and follow ADR sheni_05's reservation
+    discipline. 601-699 is hodesh's.
+
+    TON is the first function block to build, ahead of the ones that look
+    simpler. AND is a line of code and settles nothing. TON forces every
+    decision in the upper crate at once: where the clock comes from, what the
+    scan contract is, what ET does when IN drops mid-count, what is retained
+    and what is recomputed, and what resolution time has. TP and TOF are then
+    the same machine with different transitions, and the counters are easier
+    than all three.
+  consequences:
+    positive:
+      - The standard supplies the type vocabulary and the function semantics, so two applications exchanging a value agree on what it means without negotiating anything, which is the whole reason to delegate.
+      - A consumer that wants the types does not compile a scan runtime, which is the argument ADR sheni_05 made for keeping the type layer a lookup.
+      - The stateless and the stateful are separated before either is written, rather than after the enum that holds both stops making sense.
+      - Defining an own vocabulary keeps faith with the standard where sheni's primitives would have quietly reinterpreted three of its types.
+      - `duration` stays narrow and the IEC literal gets its own type, so no existing document changes meaning.
+      - Building TON first means the scan contract is designed against the hardest case rather than discovered from the easiest.
+    negative:
+      - Two crates for one standard, and a reader looking for TON in the type crate will not find it.
+      - An own type vocabulary means conversions to and from sheni's primitives, and a conversion table is a surface that has to be complete to be trusted.
+      - Four durations in the workspace once the IEC time literal lands, which is one more question a schema author has to answer correctly.
+      - The third edition's object-oriented half is excluded, so a project that uses it cannot be represented, and the exclusion will read as arbitrary to anyone who does.
+      - A reserved error band is a promise about numbers nobody has written, and nothing enforces it.
+  alternatives-rejected:
+    -
+      name: One crate holding the types, the functions and the function blocks
+      reason: A function block is behaviour under an execution contract, not a type. Putting both in one crate files execution as though it were a kind, which is the category error ADR sheni_05 corrected, and it compiles a scan runtime into every consumer that wanted BOOL.
+    -
+      name: Map the IEC types onto sheni's primitives and add only the functions
+      reason: It reinterprets three of them. `byte` already means a character here, the bit strings would collapse onto the unsigned integers the standard keeps distinct from them, and TIME would lose its sign, its fraction and its long form.
+    -
+      name: Widen sheni's `duration` to the full IEC TIME literal
+      reason: It changes what an existing type accepts, and it reverses ADR sheni_02's decision that a duration does not sniff its own convention. A fourth type applies that decision; a widening undoes it.
+    -
+      name: Cover the second edition, 2003, which has no object-oriented half to exclude
+      reason: The exclusion is cheap to state and the third edition brings LTIME, LDATE, LTOD, LDT, CHAR and WCHAR, which are ordinary type vocabulary and wanted. Choosing an older edition to avoid writing one paragraph is a poor trade.
+    -
+      name: Build AND and the stateless functions first, as the easier start
+      reason: They settle nothing. Every hard decision in this work is in the scan contract, and TON is the smallest thing that forces all of it.

@@ -1,0 +1,125 @@
+architecture-decision-record:
+  identifier: "shlita_03"
+  title: Structured Text takes Python's statements and IEC's types, and is not Python
+  status: proposed
+  date: "2026-08-29"
+  deciders:
+    - felix
+  superseded-by: ""
+  context: |
+    ADR shlita_02 put FBD and SFC in documents and sent the program organisation
+    unit's interface to shelishi. What is left for a textual language is what
+    those two cannot carry: the condition on a transition, the guard on an
+    action, and the body of a step or a block that is awkward as a graph.
+
+    Structured Text is the standard's answer, and its syntax is Pascal's --
+    `:=` for assignment, `IF` and `ELSIF` closed by `END_IF`, `CASE`, `FOR`,
+    `WHILE`, `REPEAT`. It is a small and deliberately bounded language. It is
+    also a syntax almost nobody writes willingly in 2026, and the cost of that
+    is not aesthetic: a language people avoid is a language people write badly.
+
+    The obvious alternative is Python, and the obvious way to reach it is to
+    restrict Python until it is safe. That way is wrong, and it is wrong for
+    the reason this workspace exists.
+
+    The mismatch between Python and this domain is not syntactic. Python's
+    integers are arbitrary precision, where IEC's SINT, INT, DINT and LINT are
+    fixed width with defined behaviour at the edges -- and sheni already made
+    a number's width part of its type and rejects an out-of-range literal
+    rather than wrapping it. Python's float is double precision, where REAL is
+    single. Python's `while` is unbounded, where a scan cycle must finish.
+    Recursion is ordinary in Python and forbidden outright by IEC 61131-3.
+
+    A language that looks exactly like Python and overflows at thirty-two bits
+    is the same trap SYON was built to close, moved to a new place. SYON exists
+    because a YAML document's `no` might silently be a boolean. A Python file
+    whose arithmetic silently is not Python's is that, with worse consequences.
+  decision: |
+    A distinct language, taking Python's statement syntax and IEC 61131-3's
+    type system and semantics. It is not Python, it does not accept Python
+    files, and it carries its own name and its own file extension so that
+    nobody has to be told which one they are reading.
+
+    The language is `ktav` and its files end in `.ktav`. Ktav is writing, or a
+    script -- the word for the written decree sealed with the king's ring in
+    Esther -- so it names Structured Text's own noun, in the register ADR
+    shlita_01 chose for the domain. It shares no prefix, no suffix and no
+    extension with Python, which is the whole requirement. The difference has
+    to be visible at the file, because the file is where the confusion would
+    otherwise happen.
+
+    Python supplies the surface: assignment, `if` and `elif` and `else`,
+    `for`, `while`, calls to functions and function block instances, and
+    significant indentation in place of the `END_IF` family. That surface is
+    the entire reason to prefer it, and it is worth having, because it is the
+    part every engineer already knows.
+
+    IEC supplies everything underneath. The types are ADR shlita_01's -- fixed
+    width, the bit strings distinct from the integers, REAL single precision,
+    TIME a first-class value. Arithmetic behaves as the standard says at the
+    edges rather than as Python does. Recursion is rejected, because IEC
+    forbids it and because a controller scan has to terminate. There is no
+    import, no dynamic attribute access, and no evaluation of text as code.
+
+    Starlark is the precedent to follow rather than RestrictedPython. Starlark
+    took Python's syntax, made the language deterministic and hermetic, gave it
+    its own name, and nobody confuses a Starlark file for a Python one. That is
+    the shape of this. A sandbox is the other shape: it restricts a syntax tree
+    that a full interpreter then executes, so the whole runtime remains present
+    and the safety is a fence rather than an absence. A dialect never has the
+    runtime to fence off.
+
+    The language has statements, which is what makes it Structured Text rather
+    than a calculator. But the work reaches it in two stages, because ADR
+    shlita_02 leaves expressions needed sooner than statements: a transition
+    condition and an action guard are expressions, and nothing else is required
+    to make a chart run. So the expression subset is usable before the
+    statement layer exists, and the statement layer is part of the language and
+    not deferred out of it.
+
+    The two indentation-sensitive layers are allowed to nest, and the nesting
+    is settled by tests rather than by a rule. A `ktav` body inside a SYON
+    document sits in a block scalar, which preserves indentation relative to
+    the block's own opening, so a deeply nested `if` arrives at the language
+    exactly as it was written. That is what a block scalar is specified to do
+    and it needs no new rule to be true. What it needs is proof, because this
+    is the kind of edge on which the Rust and Go implementations have already
+    disagreed twice: a conformance suite covering deep nesting, blank lines
+    inside a body, a trailing dedent at the end of a block, a body whose last
+    line is indented further than its first, and tabs meeting spaces. Both
+    implementations run it. A divergence there is a parser bug, not a question
+    about the language, and keeping it that way is the reason to prove it
+    rather than legislate it.
+  consequences:
+    positive:
+      - The syntax is one every engineer on the project already reads, which is the whole of what was wrong with Pascal's.
+      - The semantics are the standard's, so a program means what a controller would make it mean rather than what a general-purpose language would.
+      - A separate name and extension make the difference from Python visible at the point of confusion, which is the file, rather than in documentation nobody reads twice.
+      - A dialect has no interpreter to escape, so safety is a property of what was built rather than of what was blocked.
+      - Forbidding recursion and unbounded iteration is the standard's requirement and a real-time one at the same time, so the restriction needs no separate justification.
+      - The expression subset makes ADR shlita_02's charts runnable before the statement layer lands.
+    negative:
+      - Python's syntax will make people expect Python's semantics, and the arithmetic is exactly where the expectation is wrong and quietly so.
+      - A dialect is a language to specify, implement, document and version, which is a much larger commitment than adopting one.
+      - Anyone who wants a Python library inside a program organisation unit cannot have one, and this is the most likely reason someone reached for Python in the first place.
+      - Two stages means an expression-only period during which the language cannot express a step body, so charts run before programs do.
+      - Two indentation-sensitive layers in one file rest on a conformance suite rather than on a stated rule, so a case the suite misses is a guarantee the language does not actually have.
+  alternatives-rejected:
+    -
+      name: Sandbox CPython with RestrictedPython or similar
+      reason: It restricts a syntax tree that a complete interpreter still executes, so the runtime is present and safety depends on the fence being complete. It also leaves the arithmetic as Python's, which is the actual mismatch, and the fence does nothing about that.
+    -
+      name: Implement Structured Text as the standard writes it
+      reason: It is the least ambiguous option and it is the one people avoid. A language written badly because nobody enjoys writing it is a real cost, and it is paid on every transition condition rather than once.
+    -
+      name: Keep the language to expressions permanently
+      reason: A step body and a block body need statements, and pushing that into FBD would mean drawing a graph for logic that reads as three lines of text. Expressions first is a sequence, not a ceiling.
+    -
+      name: Accept Python files and reinterpret their arithmetic
+      reason: This is the trap named in the context. A file that is valid Python and means something else is worse than a file that is not Python at all, and it is precisely the failure mode SYON was built to remove from YAML.
+    -
+      name: Put `ktav` bodies in separate files, referenced by path from the document
+      reason: It removes the nesting rather than proving it, and would give `ktav` files their own tooling and diffs for free. But it splits a program organisation unit across two files, so the thing a reader wants to read whole is never whole, and the block scalar already does what is needed. A test can say so more cheaply than a second file can avoid it.
+    -
+      name: Reuse sheni's type-expression grammar as the expression language
+      reason: That grammar names types, not values. `list<Order>` and `Setpoint > 40.0` share a shape and nothing else, and stretching one to cover the other would produce a grammar that is clear about neither.

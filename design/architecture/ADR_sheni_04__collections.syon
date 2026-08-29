@@ -1,0 +1,146 @@
+architecture-decision-record:
+  identifier: "sheni_04"
+  title: Collections are parameterised by their element types, and a map key is read like any other value
+  status: proposed
+  date: "2026-08-29"
+  deciders:
+    - felix
+  superseded-by: ""
+  context: |
+    The first three groups are all closed sets of named types. A collection
+    is not a type at all until it has an element type: `list` alone says
+    nothing, `list<date>` says something. So the collection group is closed
+    in its constructors and open in what it constructs, which is a third
+    thing again, and it needs a way to write the parameters down.
+
+    The crate README sketches the two constructors with the syntax most
+    languages use, a bracketed sequence and a braced mapping. That syntax
+    cannot be used here, and the reason is specific to this project rather
+    than a matter of taste. Square brackets and braces are forbidden
+    constructs in SYON, and the two implementations do not agree on them: ADR
+    syon_08 records that Rust carries a leading bracket or brace through as
+    scalar text, because a pre-parse scan cannot tell an indicator from
+    ordinary content, while Go rejects it outright as SYON-114 or SYON-115. A
+    type expression written in that syntax would therefore parse in one
+    implementation and fail in the other -- the exact cross-implementation
+    divergence ADR syon_04 set up its independent implementations to catch.
+
+    There is a second thing the earlier groups let us defer. ADR sheni_02
+    made reading a simple type normalising, so distinct text can denote one
+    value. That is harmless for a scalar field. It stops being harmless the
+    moment values become map keys, because the parser's duplicate-key check
+    is a check on text and cannot see it.
+  decision: |
+    Two constructors, `list<T>` and `map<K, V>`, written with angle brackets.
+    Angle brackets are not indicators in SYON, carry no forbidden meaning,
+    and read identically in both implementations. `T`, `K`, and `V` are any
+    `Type`, so nesting is free and needs no special case -- a
+    `map<country, list<address>>` is built by the same rule as a `list<u8>`.
+
+    The grammar for those expressions lives in this crate, not in the layer
+    that reads schemas. It is parameterised by how a name resolves: this crate
+    resolves a name against its own closed groups, and layer 3 resolves it
+    against those plus the schema's declared names. One grammar then serves
+    both, so `map<uuid, address>` means the same thing written in a test here
+    and written in a schema there. The alternative -- layer 3 owning the
+    parser, since it is the only layer that reads a type out of a document --
+    would put the syntax for this crate's constructors in a crate this one
+    cannot see, and leave the constructors here with no written form at all.
+
+    A collection needs no declaration. It is constructed structurally from
+    the types it contains, which is what separates this group from ADR
+    sheni_03's library of named shapes.
+
+    Lists are homogeneous. A list whose elements have different types is a
+    list of a union type, and unions are deliberately absent for the reason
+    ADR sheni_03 left enum payloads out -- a substantially larger idea, left
+    unbuilt rather than half-built.
+
+    An empty list and an empty map are both valid values. This matters
+    beyond the obvious: an empty collection is what lets a recursive
+    definition terminate, which is why ADR sheni_05 can permit a cycle that
+    passes through one.
+
+    Map keys are read like any other value. A SYON mapping entry holds its
+    key as text, so a key type has to be one whose values are scalars --
+    every primitive, every simple type, and every complex enum. That is a
+    predicate on `Type`, `Type::is_scalar`, rather than the `carrier` method
+    ADR sheni_02 put on the simple group: a carrier says which primitive
+    underlies an interpretation, and every primitive trivially carries itself,
+    so asking a primitive for its carrier answers a different question than
+    the one a map key asks. A struct, a list, or a map cannot be a key, since
+    encoding one as text would mean inventing a text form nobody else uses.
+    Given `map<uuid, address>`, the key text is read at `uuid` exactly as a
+    scalar field would be.
+
+    Which brings the normalising read to the surface. Two distinct key texts
+    can denote one key value: `yes` and `true` at a `map<bool, V>`, or
+    `2001:0DB8::1` and `2001:db8::1` at a `map<ip_address, V>`. Both are
+    accepted by the parser, whose duplicate-key check compares text and is
+    correct to. A map read therefore compares keys after normalising and
+    rejects a collision with its own code. Taking the last one silently, or
+    the first, would discard data that the document plainly contains twice.
+
+    A struct and a map are both `Value::Mapping` in the parsed AST, and a
+    list is `Value::Sequence`. Which one a mapping is read as comes from the
+    declared type, never from looking at the mapping. ADR sheni_02 refused to
+    let a duration sniff which of three conventions it had been handed, and
+    this is the same refusal applied to shape rather than to text.
+
+    Neither constructor carries a length or size constraint. A minimum item
+    count is a rule about a value, not a statement about what kind of value
+    it is, and admitting one means admitting a constraint language. Callers
+    that need it can check a length themselves.
+
+    In a document, a list is only ever the block form with a leading dash per
+    item, and a map only ever the indented `key: value` form. The flow forms
+    the README's outline mentions describe other languages; SYON forbids
+    both, so the question of which to accept never arises.
+
+    Errors take the 401-499 band. The path ADR sheni_03 added to `TypeError`
+    is extended for the two constructors, a bracketed integer for a list
+    index and a bracketed quoted key for a map, so a failure deep inside a
+    nested value names the position it happened at rather than the type it
+    happened in.
+  consequences:
+    positive:
+      - Angle brackets keep type expressions inside the subset both implementations read the same way, so a schema cannot mean two things depending on which parser opened it.
+      - Element types being any `Type` means nesting, and ADR sheni_03's `address` gets its list of street lines, without either group knowing anything special about the other.
+      - The rule for what may be a map key is one predicate on `Type` that each group answers for itself, rather than a list of admissible key types maintained by hand.
+      - One type-expression grammar, parameterised by name resolution, means a schema and a hand-written type cannot disagree about what `list<T>` means.
+      - Rejecting keys that collide after normalising catches a class of duplicate the parser structurally cannot see, and it only exists because ADR sheni_02 chose to normalise.
+      - Refusing shape sniffing keeps one rule for the whole crate. The declared type decides what a value is, at every level.
+    negative:
+      - Comparing keys after normalising means a map read holds every key seen so far, so it is no longer streaming and costs memory in proportion to the map.
+      - Angle-bracket type expressions need a small grammar and a parser of their own, which is the first thing in this crate that is not a lookup by name.
+      - That parser has to be generic over name resolution before layer 3 exists to use it, so the abstraction is paid for here and exercised at one instantiation until then.
+      - Without length constraints, every caller that cares about an empty list writes the check itself.
+      - Homogeneous lists will not hold a heterogeneous document, and the answer for now is that there is no answer for now.
+  alternatives-rejected:
+    -
+      name: The bracketed and braced syntax the crate README sketches
+      reason: Both characters are forbidden constructs in SYON, and per ADR syon_08 the Rust and Go implementations disagree on what to do with them. A type expression that one parser reads and the other rejects is the divergence ADR syon_04 exists to prevent.
+    -
+      name: A nested mapping form, naming the constructor and its parameters as keys
+      reason: It avoids the forbidden characters and it is unambiguous, but it turns every element type into several lines of indentation, and a nested collection into a staircase. The angle-bracket form fits in the one scalar a type belongs in.
+    -
+      name: Let layer 3 own the type-expression parser, since it is the only reader of one
+      reason: It is true today and wrong in principle. The constructors are defined here, so their written form belongs here; putting it a layer up leaves this crate's own syntax in a crate it cannot depend on, and makes a second grammar likely the moment anything else needs to write a type down.
+    -
+      name: Heterogeneous lists, holding any element type
+      reason: That is a list of a union, and unions are out of scope in this group for the same reason enum payloads are out of scope in ADR sheni_03. Adding one implicitly, by weakening the list, is the worst way to get it.
+    -
+      name: Allow a struct or a collection to be a map key
+      reason: A SYON key is text. Encoding a composite value as a key would mean inventing a canonical text form for it, which no standard defines and no other tool would read back.
+    -
+      name: Keep the parser's text-level duplicate-key check and accept the rest
+      reason: It would let a map hold one key twice whenever normalising made two spellings equal, which is precisely the case ADR sheni_02 created and the one nobody would think to test for.
+    -
+      name: Resolve a normalised duplicate by taking the last entry, as most formats do
+      reason: Silent data loss, and the document says plainly that the key appears twice. A read that discards half of what it was given should say so.
+    -
+      name: Minimum and maximum length on a list or a map
+      reason: A constraint on a value is not a statement about its type, and there is no natural stopping point once the first one is admitted. Length is the easiest to want and the easiest for a caller to check.
+    -
+      name: Decide between a struct and a map by looking at the mapping
+      reason: Sniffing, one level up from the duration formats ADR sheni_02 refused to sniff. Two schemas differing only in a declared type would read the same document identically, which makes the declaration meaningless.

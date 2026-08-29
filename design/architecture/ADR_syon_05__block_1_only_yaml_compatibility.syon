@@ -1,5 +1,5 @@
 architecture-decision-record:
-  identifier: "0005"
+  identifier: "syon_05"
   title: Only Block 1 is YAML-compatible
   status: accepted
   date: "2026-07-11"

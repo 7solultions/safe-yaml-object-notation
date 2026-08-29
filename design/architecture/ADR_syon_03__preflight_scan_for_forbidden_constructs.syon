@@ -1,5 +1,5 @@
 architecture-decision-record:
-  identifier: "0003"
+  identifier: "syon_03"
   title: Preflight text scan for forbidden constructs
   status: accepted
   date: "2026-07-11"

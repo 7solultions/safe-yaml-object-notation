@@ -1,0 +1,128 @@
+architecture-decision-record:
+  identifier: "shlita_02"
+  title: FBD and SFC are documents rather than syntaxes, and PLCopen already names their parts
+  status: proposed
+  date: "2026-08-29"
+  deciders:
+    - felix
+  superseded-by: ""
+  context: |
+    ADR shlita_01 scoped the type vocabulary and the function blocks and left the
+    languages to their own records. IEC 61131-3 defines five, and they are not
+    peers.
+
+    Instruction List is deprecated in the third edition and is not wanted.
+    Ladder Diagram and Function Block Diagram are both graphical, and Ladder is
+    close to Function Block Diagram restricted to boolean rungs between power
+    rails, so the more general of the two is the one to have.
+
+    Sequential Function Chart is the one that is routinely mistaken for a peer.
+    It is a structuring element rather than a standalone language: it organises
+    execution into steps and transitions, and what a step does and when a
+    transition fires must be written in one of the other languages. It descends
+    from Grafcet, IEC 60848. An SFC chart with no body language is incomplete
+    by construction, so the three do not sit side by side. They stack: SFC
+    organises, FBD computes, and Structured Text fills what is left.
+
+    The observation that decides this record is what those two graphical
+    languages actually are. An FBD network is a graph -- block instances, and
+    connections running from an output to an input. An SFC chart is a state
+    machine -- steps, transitions, actions, and one initial step. Neither is a
+    syntax. Both are structures, and this workspace already has a safe
+    notation for structures.
+  decision: |
+    FBD and SFC are SYON documents validated by a shelishi schema, and
+    evaluated. No parser is written for either, because there is no language to
+    parse: SYON is the concrete syntax and the schema is the grammar.
+
+    The vocabulary is PLCopen's rather than one invented here. PLCopen TC6
+    publishes an XML interchange format for IEC 61131-3 projects, and it has
+    already named every part twice over: the program organisation unit and its
+    separation into an interface and a body; the block, the connection and the
+    in and out variables of an FBD network; the step, the transition, the
+    action block, and the selection and simultaneous divergences and
+    convergences of an SFC chart. That vocabulary is adopted and expressed in
+    SYON instead of XML.
+
+    Adopting it buys two things beyond not inventing one. The parts have
+    names that PLC engineers already use, and a document in this form is a
+    translation away from tooling that thousands of installations already
+    speak, rather than a private format that would need a bridge designed.
+
+    The program organisation unit's interface is a declaration, not code, and
+    declarations supplied at runtime are shelishi's subject -- ADR shelishi_01
+    is the record. So the variable sections are a schema-declared struct and
+    not a fragment of Structured Text. Writing a parser for the declaration
+    section would mean maintaining a second declaration syntax beside the one
+    the workspace already has, and the second one would be worse.
+
+    PLCopen's presentation data is dropped. Its model carries coordinates,
+    positions and comment placement alongside the logic, and none of it means
+    anything to an evaluator. Keeping it would put geometry in the schema that
+    every hand-written document has to supply or omit and every reader has to
+    know to skip, in exchange for a fidelity these documents do not need. The
+    cost is real and is accepted: a chart that travels out to an engineering
+    suite and back does not come home looking as it left. These documents are
+    authored here and read by ADR shlita_01's runtime, and paying for a round
+    trip nobody is making would be paying for the wrong thing. If that
+    changes, the smaller retrofit is a passthrough that parses the geometry
+    and never interprets it, and it is smaller than the one this record
+    avoids by deciding now.
+
+    Three parts are named here because they look easy and are not, and a
+    record that omitted them would be recording the pleasant half.
+
+    The first is SFC's action qualifiers. There are nine -- N, S, R, P, L, D,
+    SD, DS and SL -- and they carry real timing semantics rather than being
+    flags. An engine that implements the non-stored and stored qualifiers and
+    leaves the rest for later has implemented two ninths of the feature and
+    will discover the fraction late.
+
+    The second is that SFC transitions clear simultaneously. Under Grafcet
+    semantics every enabled transition fires in the same scan, and evaluating
+    them one after another produces charts that behave differently from every
+    commercial controller. This is the single most common way a hand-rolled
+    SFC diverges, and it is not visible in small charts.
+
+    The third is FBD's execution order. A network evaluates in dependency
+    order, and a feedback path -- an output feeding an input evaluated earlier
+    -- has to be broken explicitly, with the value stored from the previous
+    scan. PLCopen carries an explicit execution order for exactly this reason.
+    Inferring it instead would make the order depend on how the document
+    happens to be written down.
+  consequences:
+    positive:
+      - No parser, no grammar and no second concrete syntax, because the notation the workspace exists to provide is already the right one for a graph and a state machine.
+      - The vocabulary is looked up rather than designed, and it is the vocabulary the people who will read these documents already use.
+      - A document in this form is a translation away from PLCopen tooling, so interoperability is a mapping exercise rather than a design problem.
+      - The interface falls to shelishi, which is what shelishi is for, so nothing new is needed to declare a program organisation unit's variables.
+      - The three hard parts are named before the easy parts are built, which is the only time naming them changes anything.
+      - Validating a chart becomes schema validation, so a malformed chart fails the way a malformed document fails, with a code.
+    negative:
+      - A SYON rendering of PLCopen's vocabulary is not PLCopen XML, so the interoperability is a translator that has to be written and kept correct.
+      - Dropping the presentation data makes the interoperability one-way in practice, since a chart that goes out to PLCopen tooling and comes back has lost its layout permanently.
+      - The graphical languages become unreadable without a viewer, since a graph written as a document is not a diagram.
+      - Ladder Diagram is excluded, and it is the language most maintenance electricians actually read.
+      - The nine action qualifiers and simultaneous clearing are a substantial amount of semantics to get right before an SFC engine is trustworthy, and naming them does not make them smaller.
+  alternatives-rejected:
+    -
+      name: Write a parser for a textual form of FBD and SFC
+      reason: There is nothing to parse. Both are structures, and this workspace exists to give structures a safe notation. A bespoke syntax would add a grammar, a lexer and a second set of error codes to say what a schema already says.
+    -
+      name: Use PLCopen XML directly as the on-disk format
+      reason: It would put XML at the centre of a project built to avoid exactly that class of format, and the workspace's own notation would be absent from its own tooling. The vocabulary is the valuable part and it travels without the angle brackets.
+    -
+      name: Design an original vocabulary for blocks, steps and transitions
+      reason: PLCopen has named these parts for a decade and the industry uses the names. An original vocabulary would be a private dialect that every reader has to learn and every integration has to map.
+    -
+      name: Treat SFC as a peer language with its own body syntax
+      reason: The standard does not. SFC organises execution and delegates the contents of a step and the condition on a transition to another language, so a self-contained SFC is not SFC.
+    -
+      name: Include Ladder Diagram alongside Function Block Diagram
+      reason: Ladder is close to a restriction of FBD to boolean rungs, so it is mostly a rendering decision over the same graph. It is a plausible later addition as a view, not a second model.
+    -
+      name: Keep PLCopen's presentation data, or parse and preserve it opaquely
+      reason: Keeping it fills the schema with geometry the evaluator ignores and every author has to supply or omit. Preserving it opaquely was the near miss and is genuinely cheaper, but it is still a field in every document existing for a round trip these documents are not making.
+    -
+      name: Infer FBD execution order from the connection graph
+      reason: A network with feedback has no order the graph alone determines, and a topological sort of a cyclic graph is a coin toss with extra steps. PLCopen makes the order explicit because it has to be.

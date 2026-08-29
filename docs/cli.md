@@ -65,8 +65,8 @@ corpus-wide summary.
 The report names these sections rather than numbering them. It used to say
 "block2"/"block3" with the opposite meaning to the grammar spec; removing
 `[[[ ... ]]]` left the two numberings nothing to disagree about — see
-[ADR 0006](decisions/0006-phase1-block-numbering.syon) and
-[ADR 0007](decisions/0007-remove-the-literal-escape-hatch.syon).
+[ADR syon_06](decisions/ADR_syon_06__phase1_block_numbering.syon) and
+[ADR syon_07](decisions/ADR_syon_07__remove_the_literal_escape_hatch.syon).
 
 Only a fence costs YAML compatibility. A `|` block scalar is ordinary YAML
 1.2, so it raises the complexity score without lowering the compatibility

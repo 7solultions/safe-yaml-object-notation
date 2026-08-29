@@ -1,5 +1,5 @@
 architecture-decision-record:
-  identifier: "0009"
+  identifier: "syon_09"
   title: Split and compact subcommands for multi-document files
   status: proposed
   date: "2026-08-23"

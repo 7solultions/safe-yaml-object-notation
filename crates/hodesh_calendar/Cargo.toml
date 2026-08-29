@@ -1,0 +1,12 @@
+[package]
+name = "hodesh_calendar"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "hodesh_calendar"
+path = "src/lib.rs"
+crate-type = ["cdylib", "staticlib", "rlib"]
+
+[dependencies]
+hodesh_types = { path = "../hodesh_types" }

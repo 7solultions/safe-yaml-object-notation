@@ -16,6 +16,16 @@ tasks:
     cmds:
       - cargo build --workspace
 
+  build-sheni-types:
+    desc: Compile the sheni_types library crate
+    cmds:
+      - cargo build -p sheni
+
+  build-shelishi-schema:
+    desc: Compile the shelishi_schema library crate
+    cmds:
+      - cargo build -p shelishi
+
   test-parser:
     desc: Run unit tests for syon-parser
     cmds:
@@ -26,10 +36,40 @@ tasks:
     cmds:
       - cargo test --workspace
 
+  test-sheni-types:
+    desc: Run unit tests for sheni_types
+    cmds:
+      - cargo test -p sheni
+
+  test-shelishi-schema:
+    desc: Run unit tests for shelishi_schema
+    cmds:
+      - cargo test -p shelishi
+
+  build-hodesh-types:
+    desc: Compile the hodesh_types library crate
+    cmds:
+      - cargo build -p hodesh_types
+
+  build-hodesh-calendar:
+    desc: Compile the hodesh_calendar library crate
+    cmds:
+      - cargo build -p hodesh_calendar
+
   run-cli-binary:
     desc: Parse a .syon file and print the AST as JSON
     cmds:
       - cargo run -p syon-cli -- {{.CLI_ARGS}}
+
+  test-hodesh-types:
+    desc: Run unit tests for hodesh_types
+    cmds:
+      - cargo test -p hodesh_types
+
+  test-hodesh-calendar:
+    desc: Run unit tests for hodesh_calendar
+    cmds:
+      - cargo test -p hodesh_calendar
 
   check-all:
     desc: Type-check the whole workspace without producing artifacts

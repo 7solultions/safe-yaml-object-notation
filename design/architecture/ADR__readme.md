@@ -1,11 +1,28 @@
-ADR_01__record_architecture_decission.syon
-ADR_02_pest_as_the_rust_parsing_engine.syon
-ADR_03_preflight_scan_for_forbidden_constructs.syon
-ADR_04_independent_go_implementation.syon
-ADR_05_block_1_only_yaml_compatibility.syon
-ADR_06_phase1_block_numbering.syon
-ADR_07_remove_the_literal_escape_hatch.syon
-ADR_08_parse_error_codes.syon
-ADR_09_split_and_compact_multi_document.syon
-ADR__readme.md
-README.md
+- `ADR_hodesh_01__two_crates_and_a_day_count.syon`
+- `ADR_hodesh_02__month_is_the_mean_lunation.syon`
+- `ADR_hodesh_03__metonic_year_and_appended_leap_month.syon`
+- `ADR_hodesh_04__numbered_months_and_a_new_moon_epoch.syon`
+- `ADR_shelishi_01__schema_based_types.syon`
+- `ADR_sheni_01__primitives.syon`
+- `ADR_sheni_02__simple_types.syon`
+- `ADR_sheni_03__complex_types.syon`
+- `ADR_sheni_04__collections.syon`
+- `ADR_sheni_05__type_layer_boundary.syon`
+- `ADR_sheni_06__soft_dates.syon`
+- `ADR_sheni_07__soft_bool.syon`
+- `ADR_sheni_08__soft_types.syon`
+- `ADR_sheni_09__soft_primitives.syon`
+- `ADR_sheni_10__soft_date_ranges.syon`
+- `ADR_shlita_01__two_crates_and_scope.syon`
+- `ADR_shlita_02__fbd_and_sfc_are_documents.syon`
+- `ADR_shlita_03__structured_text_dialect.syon`
+- `ADR_syon_01__record_architecture_decission.syon`
+- `ADR_syon_02__pest_as_the_rust_parsing_engine.syon`
+- `ADR_syon_03__preflight_scan_for_forbidden_constructs.syon`
+- `ADR_syon_04__independent_go_implementation.syon`
+- `ADR_syon_05__block_1_only_yaml_compatibility.syon`
+- `ADR_syon_06__phase1_block_numbering.syon`
+- `ADR_syon_07__remove_the_literal_escape_hatch.syon`
+- `ADR_syon_08__parse_error_codes.syon`
+- `ADR_syon_09__split_and_compact_multi_document.syon`
+- `README.md`

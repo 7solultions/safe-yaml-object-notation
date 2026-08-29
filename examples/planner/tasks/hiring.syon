@@ -1,0 +1,10 @@
+# A task where almost nothing is known yet, written out rather than omitted
+# so the document says so explicitly.
+id: 018f5e2a-0000-7000-8000-000000000001
+title: Open the second engineering role
+due: XXXX
+window: 2026-10/..
+estimate: P10D
+priority: 5
+assignee_count: unknown
+blocked: unknown

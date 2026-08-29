@@ -1,0 +1,9 @@
+# A task that is mostly known: the quarter is settled, the rest is not.
+id: 018f5e2a-0000-7000-8000-000000000000
+title: Draft the product roadmap
+due: 2026-35
+window: 2026-07/2026-09
+estimate: P3DT4H
+priority: 2
+assignee_count: 3
+blocked: false

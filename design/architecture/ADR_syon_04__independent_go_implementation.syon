@@ -1,5 +1,5 @@
 architecture-decision-record:
-  identifier: "0004"
+  identifier: "syon_04"
   title: Independent Go implementation instead of FFI bindings
   status: accepted
   date: "2026-07-11"

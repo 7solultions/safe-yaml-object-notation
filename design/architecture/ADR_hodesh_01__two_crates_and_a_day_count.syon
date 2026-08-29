@@ -1,0 +1,109 @@
+architecture-decision-record:
+  identifier: "hodesh_01"
+  title: Calendars convert through one day count, and the count lives in a crate below them
+  status: proposed
+  date: "2026-08-29"
+  deciders:
+    - felix
+  superseded-by: ""
+  open-questions:
+    - Whether a time of day belongs in this layer at all, or whether hodesh stays a calendar of whole days and leaves instants to sheni's timestamp.
+    - Whether the day count should be exposed as a sheni simple type so a SYON document can carry one directly, or stay an implementation detail of the conversion.
+    - Whether CalendarDate should be object-safe, which the generic convert method currently prevents, and which a runtime registry of calendars would need.
+    - Which calendar joins next. Julian and the ISO week date were both offered and both deferred, so the two-calendar design has not yet been tested against a third.
+    - Whether the error band 601-699 is the right neighbour to sheni's bands, given the hodesh crates do not depend on sheni and may never be reported alongside it.
+  context: |
+    Two crates were asked for, hodesh_calendar and hodesh_types, to hold date
+    types, conversions between calendars, and a new calendar of the project's
+    own. The question this record answers is what separates them, and how
+    conversion works, because both answers are cheap now and expensive later.
+
+    Converting between calendars pairwise is the obvious shape and the wrong
+    one. Two calendars need one routine, three need three, four need six, and
+    each is a separate place to get a leap year wrong. Worse, every calendar
+    ends up importing every other, so adding one means editing all of them.
+
+    There is a standard answer, and it predates this project by decades.
+    Reingold and Dershowitz's Calendrical Calculations converts every calendar
+    to and from a single count of days, the rata die, and never between two
+    calendars directly. Each calendar states two things about itself and is
+    then connected to all the others without knowing they exist. The cost is
+    linear rather than quadratic, and the arithmetic that is easy to get wrong
+    is written once.
+
+    That leaves where the count lives. Putting it in the same crate as the
+    calendars would mean a calendar defined elsewhere has to depend on the
+    whole set to join the scheme, which is the coupling the day count was
+    supposed to remove.
+  decision: |
+    Two crates, split along the same line the workspace already uses between
+    sheni and shelishi -- a lower layer that defines the shapes, an upper one
+    that supplies the instances.
+
+    hodesh_types holds what is true of every calendar and nothing about any
+    particular one -- the day count, the week, the contract a calendar
+    implements, and the error a date raises when it cannot exist.
+    hodesh_calendar holds the calendars.
+
+    The day count is FixedDay -- the rata die, where day 1 is proleptic
+    Gregorian 0001-01-01. Deliberately not the Unix epoch, whose start day is
+    arbitrary in every calendar including its own, and deliberately not the
+    Julian Day Number, which begins at noon and so makes a day something that
+    straddles two dates.
+
+    A calendar implements CalendarDate, which requires exactly two methods --
+    a date to a FixedDay and back -- and provides the rest. Weekday, day
+    arithmetic, the interval between two dates, and conversion to every other
+    calendar are all written once against the count. The contract is that the
+    two required methods round-trip for every representable date, and every
+    calendar in the workspace tests it by exhaustion over a span of centuries
+    rather than at a handful of sampled points.
+
+    A day is a whole day and begins at midnight UTC. This is stated once here
+    rather than per calendar, because it is the same answer for all of them
+    and because a calendar meant as a standard cannot have a date that depends
+    on where the reader is standing. No local offset, no summer time.
+
+    Errors take the 601-699 band and a HodeshCode enum, following the same
+    discipline ADR syon_08 set for parse errors and sheni carried into the
+    type layer -- the number is API, the wording is not. The band sits above
+    the 501-599 that sheni reserved for shelishi, so a hodesh code and a sheni
+    code never collide even where the two are reported side by side.
+
+    The week is in the lower crate rather than in any calendar, because it is
+    the one cycle that refers to neither sun nor moon and has never been
+    interrupted or renumbered. It is a property of the day, so it is a
+    remainder on the count and every calendar gets it for free.
+  consequences:
+    positive:
+      - Adding a calendar is one file that mentions no other calendar, and it is connected to all of them the moment it compiles.
+      - The arithmetic that is easy to get wrong is written once per calendar rather than once per pair, so an exhaustive round-trip test over centuries actually covers it.
+      - A calendar defined outside this workspace can implement the contract against hodesh_types alone and interoperate, without either side importing the other.
+      - The weekday is the same in every calendar by construction rather than by agreement, because conversion is by day and the week is a property of the day.
+      - Fixing the day boundary at midnight UTC in one place means no calendar can quietly disagree about it, and no date here depends on a timezone.
+      - The layering matches sheni and shelishi, so the workspace has one story about what a types crate is rather than two.
+    negative:
+      - Two crates for what is currently two calendars is more ceremony than the code needs today, and is justified by calendars that have not been written yet.
+      - Every conversion goes through the day count even where a direct one would be cheaper, which is a real cost in a tight loop and an irrelevant one everywhere else.
+      - The generic convert method makes CalendarDate not object-safe, so a collection of dates in mixed calendars cannot be held behind a trait object without a second, narrower trait.
+      - A calendar of whole days cannot express an instant, so anything needing a time of day has to reach for sheni's timestamp and carry two values.
+      - The rata die is unfamiliar next to the Unix epoch, so the count printed in a debug log will not be a number anyone recognises.
+  alternatives-rejected:
+    -
+      name: One crate holding both the day count and the calendars
+      reason: A calendar defined elsewhere would have to depend on every calendar in the set to join the scheme, which is exactly the coupling the day count exists to remove. The split costs one manifest.
+    -
+      name: Pairwise conversion routines between calendars
+      reason: Quadratic in the number of calendars, and each routine is a fresh opportunity to get an intercalation wrong. It also makes every calendar import every other.
+    -
+      name: The Unix epoch as the day count origin
+      reason: 1970-01-01 is arbitrary in every calendar including the Gregorian one, and choosing it would put an accident of Bell Labs at the centre of a calendar meant as a standard. The rata die at least starts at a year boundary.
+    -
+      name: The Julian Day Number as the day count
+      reason: It begins at noon, which makes a single day straddle two dates in every calendar built on it. Astronomers want that and calendars do not.
+    -
+      name: Delegating to the time crate, as sheni does for its date type
+      reason: ADR sheni_02 delegates because a published standard already defines the type. Here there is no crate that implements hodesh, because hodesh did not exist until this project defined it, so there is nothing to delegate to.
+    -
+      name: A local day boundary, configurable per caller
+      reason: It would make the same instant two different dates for two readers, which is the property a standard exists to eliminate. A calendar that needs a timezone to name a day has not standardised anything.

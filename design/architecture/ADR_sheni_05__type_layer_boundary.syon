@@ -1,0 +1,95 @@
+architecture-decision-record:
+  identifier: "sheni_05"
+  title: The type layer stops at four kinds, and user-defined types belong to the layer above
+  status: accepted
+  date: "2026-08-29"
+  deciders:
+    - felix
+  superseded-by: ""
+  context: |
+    ADR sheni_03 was corrected once already. It first read the complex group
+    as a mechanism for declaring types, and the correction was that group 3 is
+    a curated library shipped in code, closed like the two groups below it.
+    The declaration capability was still wanted, so it was moved sideways into
+    a fifth group of this same crate.
+
+    Two things then showed that sideways was the wrong direction.
+
+    The first is that ADR sheni_03 argues for closed groups on the grounds
+    that "keeping the group closed means no name environment, no resolution
+    pass, and no cycle detection at this level; the crate stays a lookup."
+    A fifth group inside this crate makes that sentence false. The name
+    environment, the resolution pass, and the cycle detector are all present
+    and all compiled, for every consumer, including one that only ever wanted
+    `u8` and `date`.
+
+    The second is more fundamental, and the record for group 5 stated it
+    without noticing what it implied: user-defined types are "the same enum
+    and the same struct ADR sheni_03 defines... What differs is only where
+    the definition comes from." Groups 1 to 4 classify a type by what it is --
+    a scalar, an interpreted scalar, a composite, a container. A fifth group
+    for user-defined types classifies by where its definition came from.
+    Those are two different axes, and putting them in one enum is a category
+    error that a crate boundary makes obvious.
+
+    The repository already held the answer. `crates/shelishi` existed as an
+    empty placeholder, reserved for the third layer -- shelishi being third as
+    sheni is second -- with nothing yet identified to put in it.
+  decision: |
+    `TypeGroup` has four members and classifies by kind alone. Where a
+    definition came from is not a kind, and this crate does not model it.
+
+    User-defined types are the third layer, in their own crate:
+    `shelishi_schema`, following this crate's own convention of a package
+    named for the layer and a library named for what the layer does. Its
+    decisions are recorded in the `ADR_shelishi_*` series, starting with
+    ADR shelishi_01.
+
+    The dependency runs one way, and ADR sheni_03's closedness is what
+    guarantees it. A curated shape can never name a user-declared one, so
+    layer 3 depends on layer 2 and layer 2 never depends on layer 3. This is
+    not a convention to be maintained; it falls out of the group being closed.
+
+    This crate reserves the 501-599 error band for layer 3 rather than using
+    it. Reserving a range for a component that does not implement it here is
+    the same discipline ADR syon_08 applied across three parser
+    implementations, and for the same reason: a number must never come to mean
+    two things.
+
+    Collections are generic over their element type. `CollectionType<T>` is
+    defined here, this crate instantiates it at its own four-group `Type`, and
+    layer 3 instantiates it at a type of its own that adds declared names. A
+    `list<Order>` with a user-declared `Order` therefore needs nothing from
+    this crate beyond the constructor it already has.
+
+    The alternative was a `Named` case in this crate's `Type` that this crate
+    never produces and cannot read, left for layer 3 to resolve. That is
+    rejected on the principle the whole crate is built on. Every `Type` this
+    crate can name, it can read. Admitting one it cannot interpret would put
+    an unreadable value inside the type that exists to say what values are,
+    and would give every consumer a variant to handle that can never occur.
+  consequences:
+    positive:
+      - The type layer stays a lookup, as ADR sheni_03 promised, and a consumer that never loads a schema never compiles a schema loader.
+      - A schema supplied at runtime is untrusted input, and that surface is now behind a crate boundary a consumer opts into rather than one they get by depending on the type layer.
+      - The two axes stay apart. A user-declared struct is a struct, and saying so is now possible because provenance is not competing with kind for a place in the same enum.
+      - The one-way dependency is guaranteed by a decision already made rather than by review, since a closed library cannot name what it does not contain.
+      - The two layers can version independently, which matters because group 3's shapes are permanent API while schema syntax and resolution rules will move for some time.
+    negative:
+      - Collections become generic, and the parameter propagates through the value type and every signature that mentions one. It is the price of keeping `Type` total.
+      - Layer 3 must instantiate and re-export the collection constructors rather than inheriting a finished `Type`, so a small amount of wiring is duplicated at the boundary.
+      - A reserved error band is a promise about numbers nobody has written yet, and nothing in this crate enforces that layer 3 honours it.
+      - Anyone looking for user-defined types in the type layer will not find them, and the README has to say where they went.
+  alternatives-rejected:
+    -
+      name: Keep user-defined types as a fifth group of this crate
+      reason: It contradicts ADR sheni_03's stated reason for closed groups by compiling the resolver into every consumer, and it files provenance as though it were a kind.
+    -
+      name: A `Named` case in this crate's `Type`, resolved by the layer above
+      reason: It avoids generics by admitting a type this crate can name and cannot read. Every consumer would then handle a variant that never occurs here, and the type layer would contain a value it has no interpretation for.
+    -
+      name: Put the schema loader behind a feature flag in this crate
+      reason: A feature flag hides the code from the compiler, not from the crate. The dependency, the untrusted-input surface, and the version cadence would all still be shared, and features are additive across a workspace so one consumer enabling it enables it for the build.
+    -
+      name: Let the curated library reference user-defined types, so schemas can extend it
+      reason: It would invert the dependency and make group 3's shapes depend on definitions that arrive at runtime, which is exactly the property that lets two applications agree on an address without negotiating one.

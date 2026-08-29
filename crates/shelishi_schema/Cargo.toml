@@ -1,0 +1,13 @@
+[package]
+name = "shelishi"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "shelishi_schema"
+path = "src/lib.rs"
+crate-type = ["cdylib", "staticlib", "rlib"]
+
+[dependencies]
+syon-parser = { path = "../syon-parser" }
+sheni = { path = "../sheni_types" }

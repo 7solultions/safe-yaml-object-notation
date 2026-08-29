@@ -1,0 +1,115 @@
+architecture-decision-record:
+  identifier: "sheni_07"
+  title: A boolean that may be unknown is a three-valued enum, and `bool` stays two-valued
+  status: accepted
+  date: "2026-08-29"
+  deciders:
+    - felix
+  superseded-by: ""
+  context: |
+    ADR sheni_03 gave `bool` no fallback, so a boolean field cannot be
+    optional. The reasoning was that `false` is an answer rather than an
+    absence, and a flag reading false because nobody set it is
+    indistinguishable from a flag deliberately turned off. That record also
+    admitted this is where the rule costs something visible, since an
+    optional flag is the most commonly wanted optional field there is.
+
+    ADR sheni_06 then answered the same problem for dates, and the answer
+    generalised: where a value may genuinely be unknown, the fix is a type
+    whose value space includes the unknown, not a field that might be
+    missing. `soft_date` has a fully unspecified date as a member of the
+    type, so an optional `soft_date` field needs no sentinel.
+
+    The boolean case is the same case, and it is older than this project.
+    "Do you have a passport?" has three answers in every survey ever run --
+    yes, no, and nobody asked. Databases have modelled this as a nullable
+    boolean for forty years, which is the same conflation of "false" with
+    "unrecorded" that ADR sheni_03 refused, moved into the storage layer.
+  decision: |
+    A new type, `soft_bool`, with three values: `false`, `unknown`, and
+    `true`.
+
+    This record first placed it in group 3 as an enum, since it is a named set
+    of variants over one backing primitive, which is what an enum is here.
+    ADR sheni_09 moved it to group 1. Nothing this record decides about the
+    type changed -- the same three values, the same order, the same operations
+    -- but `soft_bool` is no longer bespoke. It is the boolean member of a
+    soft twin for every primitive that can spell its own unknown, and one
+    mechanism for softness in group 1 beats a family with an exception beside
+    it. Read the group placement as amended; read everything else as written.
+
+    The order is `false` at 0, `unknown` at 1, and `true` at 2.
+    That ordering is not arbitrary and not alphabetical. It is Kleene's
+    strong three-valued logic, the same three-valued logic SQL uses, in which
+    the truth ordering runs false below unknown below true. With the values
+    ranked in that order the operations are arithmetic on the ranks:
+
+        and   is the minimum of the two ranks
+        or    is the maximum of the two ranks
+        not   is 2 minus the rank
+
+    Those three operations ship with the type, per ADR sheni_03's rule that a
+    curated type carries the behaviour that makes it worth curating. A shape
+    without them sends every consumer to rediscover the same truth tables,
+    and the tables are exactly where people get three-valued logic wrong.
+
+    `soft_bool`'s fallback is `unknown`, and it is the second type to have
+    one after `soft_date`. This refines ADR sheni_03's statement that an enum
+    has no fallback because no variant is more absent than another. That
+    holds for every enum in the library -- no month is more absent than
+    another, no country is -- and it holds because those enums enumerate
+    answers. `soft_bool` enumerates two answers and one absence, and the
+    absence is a member by construction rather than a variant promoted to
+    stand in for one. An enum therefore has a fallback exactly when one
+    variant means "not known" by design, which is a property of how the enum
+    was drawn and not something a schema author may assert later.
+
+    `bool` is unchanged and stays two-valued, with no fallback and no
+    optional fields. Widening it would put the third state in front of every
+    consumer that has a settled yes or no, and a field declared `bool` should
+    promise the question was answered. The two types together are the whole
+    point: an unset `soft_bool` reads `unknown`, which the consumer must
+    handle, rather than reading `false`, which the consumer would not notice.
+
+    What does not ship is SQL's comparison semantics. Three-valued logic is
+    adopted for the operations on this type only. Nothing here makes equality
+    on any other type return `unknown`, and nothing propagates unknown
+    through comparisons elsewhere. Importing the logic is the value; importing
+    the surrounding behaviour is where three-valued systems become famous for
+    surprising people.
+
+    Errors continue the complex band once it is allocated. Reading follows
+    ADR sheni_03's rule for enums unchanged: a scalar holding a variant name,
+    with the backing a separate thing for storage and wire formats.
+  consequences:
+    positive:
+      - The most commonly wanted optional field becomes expressible without weakening `bool`, which is what ADR sheni_03's rule was protecting.
+      - An unset value reads `unknown` and forces the consumer to decide, rather than reading `false` and being missed, which is the failure ADR sheni_03 named.
+      - The backing order makes `and`, `or` and `not` the minimum, maximum and complement of the backings, so the implementation is hard to get wrong and easy to check.
+      - Shipping the operations puts the truth tables in one place, and the truth tables are the part of three-valued logic people reliably get wrong.
+      - The rule for when an enum has a fallback is now stated, so the next enum that wants one is a question with an answer rather than a precedent argument.
+    negative:
+      - A second boolean is a question every schema author now has to answer, and some will take `soft_bool` because it is more forgiving rather than because the value is genuinely unknown.
+      - Three-valued logic is genuinely harder to reason about than two-valued logic, and code handling a `soft_bool` has a third branch that is easy to write and easy to write wrongly.
+      - The refinement to the enum fallback rule is a judgement about how an enum was drawn, and judgements are harder to apply consistently than the flat rule they replace.
+      - Adopting Kleene's operations while refusing SQL's comparison semantics is a distinction that will have to be explained more than once.
+      - The variant names `false` and `true` read as booleans in a document, so a reader has to know the declared type to know which of the two types they are looking at.
+  alternatives-rejected:
+    -
+      name: Give `bool` a fallback of `false` and drop the whole question
+      reason: Rejected in ADR sheni_03 and rejected again here. A flag nobody set reading as off is silent, and the point of this record is that the honest answer exists and can be named.
+    -
+      name: Widen `bool` to three states rather than adding a type
+      reason: Every consumer of every boolean field would then handle a third state, including the ones whose field is a settled yes or no. A field declared `bool` should promise the question was answered.
+    -
+      name: A simple type over a constrained text form, in group 2
+      reason: It is a named set of variants over a backing primitive, which is the definition of an enum in this crate. Group 2 is for an interpretation validated against a standard, and there is no text form to validate here beyond the three names.
+    -
+      name: Order the variants `unknown`, `false`, `true`, so the fallback is zero
+      reason: It puts the fallback at rank 0, which is tidy and costs the arithmetic. Kleene's truth ordering is what makes `and` a minimum and `or` a maximum, and a tidy zero is not worth hand-written truth tables.
+    -
+      name: Adopt SQL's three-valued semantics wholesale, including comparisons
+      reason: The operations on this type are well defined and useful. Unknown propagating through equality on every other type is a different and much larger decision, and the one that gives three-valued logic its reputation.
+    -
+      name: Let a schema author nominate any enum variant as the fallback
+      reason: It would let `month` default to January, which is a sentinel with a friendly name. Whether an enum contains an absence is a property of how it was drawn, decided once by whoever drew it.

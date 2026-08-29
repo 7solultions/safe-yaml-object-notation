@@ -1,0 +1,283 @@
+architecture-decision-record:
+  identifier: "sheni_03"
+  title: Complex types are a curated library shipped in code, not a way to declare types
+  status: proposed
+  date: "2026-08-29"
+  deciders:
+    - felix
+  superseded-by: ""
+  context: |
+    The primitive and simple groups share a property that made them easy: the
+    set of types is closed. Sheni ships sixteen primitives and fourteen simple
+    types, both enumerated in the crate, and `from_name` is a lookup over an
+    array. A schema author picks from the list; nobody adds to it.
+
+    An earlier draft of this ADR read the complex group as the point where
+    that closes-ness ends -- enums and structs being, on the face of it,
+    things somebody declares. It proposed a schema language, a name
+    environment, and a resolution pass, and moved the whole crate from
+    lookup to compilation in one step.
+
+    That was the wrong reading of what this group is for. Enums and structs
+    being user-declarable is a real and wanted capability, but it is a
+    different capability, and it now has its own group and its own record in
+    ADR sheni_05. What group 3 is for is narrower and more valuable: the
+    composite types that keep getting rebuilt. An address. A colour. A month.
+    A day of the week. An amount of money. Every application writes them
+    again, slightly differently, and gets the same handful of details wrong
+    each time.
+
+    The second reason is interoperability, and it is the stronger one. Two
+    applications that both use Sheni as their type engine can pass an address
+    between them without negotiating what an address is, but only if the
+    address they each mean is the same address. That is only true if the
+    shape ships with the type engine. A shape each application declares for
+    itself is a shape no two of them agree on.
+
+    One thing the parser already anticipated is worth naming here. Every
+    mapping entry in `syon_parser::ast` carries a 1-based source line, with a
+    comment saying it exists so a consumer can point at a line rather than a
+    whole file, because "unrecognised field" is far less useful without one.
+    That consumer is this group. Nothing before now had a use for it.
+  decision: |
+    The complex group is a curated library of composite types, enumerated in
+    the crate exactly as the primitive and simple groups are. `ComplexType`
+    is a closed Rust enum. There is no schema syntax here, no name to
+    resolve, and no user extension point -- that is ADR sheni_05's subject.
+
+    The group holds two kinds, and `ComplexType::kind` says which. An enum is
+    a set of named variants over one backing primitive, declared once for the
+    whole enum rather than per variant. A struct is a set of named, typed
+    fields.
+
+    A struct field's type may come from any group, which forces a `Type` enum
+    spanning them -- `Type::Primitive` and `Type::Simple` wrapping the
+    existing closed enums unchanged, plus `Type::Complex` and ADR sheni_04's
+    `Type::Collection` -- and a matching `TypeValue`. Reading becomes
+    `Type::read`, with the group-specific readers unchanged underneath.
+    Because every group is closed, this enum needs no environment and no
+    resolution pass; it is still a lookup.
+
+    The two shapes are generic over the type a field or a backing refers to.
+    `StructShape<T>` and `EnumShape` are defined here, and this crate
+    instantiates them at its own four-group `Type`, exactly as ADR sheni_05
+    has it instantiate `CollectionType<T>`. Layer 3 instantiates the same
+    shapes at a type of its own that adds declared names, so a user-declared
+    struct is not a second kind of struct that has to be kept in agreement
+    with this one -- it is this one, holding a different element type. The
+    curated library is then a closed set of values of an open shape, and only
+    the set is closed. `EnumShape` needs no parameter, since a backing is
+    always a primitive.
+
+    A field is required or optional, and optional means the field falls back
+    to a value when the key is absent. The fallback belongs to the type, not
+    to the field: `Type::fallback` answers with a value or with nothing, and
+    a field whose type answers with nothing cannot be declared optional at
+    all. Where there is no fallback there is no optionality, and the field is
+    required.
+
+    This is the deciding rule for the whole feature, and it is worth being
+    plain about what it rules out. `date`, `timestamp`, `uuid`, `char`,
+    `email`, and every other simple type have no fallback. Neither does an
+    enum, since no variant is more absent than another. Making such a field
+    optional would mean nominating a sentinel -- an epoch date, a nil UUID --
+    and a sentinel is a real value of the type that some document will one
+    day mean literally. The fallback has to be the type's own empty, or the
+    field is required.
+
+    What does have one: `string` falls back to empty text, and a list or a map
+    to the empty collection. The numeric primitives do not, and this record
+    first said they did. ADR sheni_09 argued that zero is an answer rather than
+    an absence -- a count of zero is a fact somebody established, and a
+    temperature of zero is a reading -- so a numeric fallback of zero is the
+    sentinel this record's own paragraph above refuses, wearing a friendlier
+    number. That argument is accepted and the sentence is corrected. The
+    numeric type that admits an absence is `soft_u8` and its fourteen
+    siblings, where the absence is a member of the value space rather than a
+    borrowed value.
+
+    What remains is the rule the correction leaves standing, which is tighter
+    than the one it replaces: a type has a fallback when its empty is a
+    genuine identity, where setting the value to nothing and never setting it
+    coincide. Empty text and the empty collection are that. Zero is not. A
+    struct
+    has a fallback exactly when every one of its fields does, computed
+    recursively, which is what lets `address` be an optional field while a
+    struct holding a `date` cannot be one.
+
+    `bool` deliberately has no fallback. `false` is an answer rather than an
+    absence, and a flag that silently reads false when nobody set it is the
+    oldest configuration bug there is. This is the one place the rule costs
+    something people will notice, since an optional flag is a common thing to
+    want, and it is recorded here so that reversing it later is one decision
+    rather than an archaeology exercise.
+
+    The fallback is also not the author's to choose. Two shapes with the same
+    field must default it the same way, or the interoperability argument
+    fails at exactly the point it matters: one application reading a missing
+    `note` as empty text and another as `n/a` is the disagreement this group
+    exists to prevent. `optional` therefore takes no accompanying value.
+
+    The consequence is that reading a struct always yields a value for every
+    field, and `TypeValue` has no absent case. A missing key for an optional
+    field takes the type's fallback; a missing key for a required field is an
+    error. Nothing downstream of a read distinguishes a fallen-back field
+    from a written one, which is what the interoperability argument needs:
+    two applications sharing a shape see the same fields populated the same
+    way, rather than one of them handling an absence the other never
+    produces.
+
+    What earns a place in the library is the whole decision here, since the
+    set is API the moment it ships. Four tests, all of which must pass:
+
+      1. A published standard or an overwhelming de-facto convention defines
+         its shape. Without one, "battle tested" means "our opinion", and
+         two applications agreeing is a coincidence rather than a guarantee.
+      2. It appears in applications that have nothing else in common. A type
+         that only one domain needs belongs in that domain's own schema.
+      3. Its shape has stopped moving. Every field is permanent for every
+         consumer, so a type still finding its form does not belong yet.
+      4. It genuinely has parts. If it is one scalar with a constrained text
+         form, it is a simple type, and group 2 already has it.
+
+    And one exclusion that is not a matter of judgement. Types encoding
+    contested human or cultural categories -- a person's name broken into
+    parts, a gender, a fixed idea of what a household is -- are out, however
+    often they are asked for. The interop argument inverts for them: shipping
+    one shape does not make everyone agree, it makes everyone wrong in the
+    same way, and being wrong about a person's name in a shared vocabulary is
+    worse than each application being wrong on its own.
+
+    The initial library:
+
+        enums
+          month          ISO 8601 month numbering, backed by u8 1 to 12
+          weekday        ISO 8601 day numbering, backed by u8 1 to 7, Monday is 1
+          country        ISO 3166-1 alpha-2, backed by string
+          colour_name    CSS Color Module Level 4 named colours, backed by u32 RGB
+
+        structs
+          address        postal address, modelled below
+          money          integer minor units plus an ISO 4217 currency_code
+          rgb            three u8 components
+          geo_point      ISO 6709 latitude and longitude, as f64
+          semver         major, minor, patch, and optional pre-release and build
+
+    Two of those shapes carry a decision of their own.
+
+    `money` holds an integer count of minor units and a currency code, never
+    a float amount. ISO 4217 gives the minor-unit exponent per currency, so
+    1050 USD minor units is unambiguously ten dollars fifty. A float amount
+    would be the single most reliable way to lose a cent, and ADR sheni_01
+    already refused to let a number's precision go unstated.
+
+    `address` holds a list of street lines, a locality, an optional region,
+    an optional postal code, and a country. The street lines are a list
+    rather than line1, line2 and line3, because the number of lines is not
+    the same everywhere. Region and postal code are optional because many
+    countries have neither, and both fall back to empty text. This is the
+    inclusion criteria applied to the
+    type most likely to encode somebody's assumptions as everybody's
+    constraint.
+
+    That list of street lines makes ADR sheni_04 a prerequisite: `address`
+    cannot ship before collections do, even though the rest of the library
+    can.
+
+    A curated type ships the behaviour that makes it worth curating, not only
+    its shape. `colour_name` translates a name to its RGB backing and back,
+    `month` and `weekday` translate between number and name, and the date-like
+    work the simple group already delegates stays delegated. A shape without
+    its operations sends every consumer to find the same table again, which is
+    the duplication this group exists to end. Where a table grows large enough
+    to dominate the crate -- a full ISO 3166 list, the whole CSS colour set --
+    it is extracted into an underlying crate that this one depends on, in the
+    same spirit as ADR sheni_02's delegation. Extracted, not trimmed: the
+    library's usefulness is in being complete, and a build-time cost is the
+    thing to move rather than the thing to avoid by shipping half a standard.
+
+    Reading a value follows the shapes the parser already produces. An enum
+    reads from a scalar, which holds the variant name; the backing value is
+    what the name maps to for storage or a wire format, so an enum's carrier
+    is `string` like every simple type, and the backing is a second and
+    separate thing. A struct reads from a mapping.
+
+    An unrecognised field in a document is an error, not something skipped.
+    It is nearly always a typo or a version skew, and the failure mode of
+    ignoring it is a setting that silently does nothing. This is where the
+    parser's per-entry line numbers get spent, so the error points at the
+    line the unknown key is on.
+
+    Field order in a document does not matter, and a struct value keeps its
+    fields in declaration order regardless of the order they were written in.
+    Two documents that set the same fields are then equal as values, which is
+    what makes comparing and re-emitting them well defined.
+
+    The library is acyclic by construction, and a test asserts it rather than
+    a cycle detector enforcing it. Detecting cycles is ADR sheni_05's
+    problem, where definitions arrive from outside and cannot be tested in
+    advance.
+
+    Errors take the 301-399 band. Because a struct is the first type whose
+    values nest, `TypeError` gains a path -- `address.postal_code` -- naming
+    where in the document the failure sits, alongside the code it already
+    carries.
+
+    The library grows by ADR, one record per addition, so that each new
+    permanent shape is argued once in public rather than accumulating.
+  consequences:
+    positive:
+      - Two applications using Sheni share a vocabulary without negotiating it, which is the interoperability argument and the reason the shapes cannot be left to each application.
+      - The composite types every application rewrites arrive already written, with the details that are usually got wrong already settled.
+      - Enums and structs get built, exercised, and corrected in-tree against a fixed set before ADR sheni_05 exposes the same machinery to definitions from outside.
+      - Keeping the group closed means no name environment, no resolution pass, and no cycle detection at this level; the crate stays a lookup.
+      - Writing down the inclusion criteria turns "should we add X" from a matter of taste into four questions with answers.
+      - Making the shapes generic means layer 3 reuses them rather than reimplementing them, so the two layers cannot drift about what a struct is; there is only one struct.
+      - Falling back on every optional field removes the absent case from `TypeValue` entirely, so no consumer writes a branch for a field that is not there.
+      - Gating optionality on the type means no shape can nominate a sentinel, so no epoch date or nil UUID enters the library as a stand-in for nothing.
+      - The fallback belonging to the type rather than the field means two shapes cannot default the same field differently, which is the interoperability guarantee applied to absence.
+      - Shipping behaviour with each shape is what stops every consumer rebuilding the same name-to-value table, which is half the reason the group exists.
+    negative:
+      - Every shape in the library is API from the moment it ships, and a shape that turns out wrong is now wrong for every consumer at once. The interop benefit runs in both directions.
+      - A curated set attracts requests, and each one costs an ADR. That is deliberate friction, but it is friction.
+      - `address` encodes assumptions that do not hold everywhere. Optionality reduces the damage and does not remove it, and no postal address model in existence fits every country.
+      - The library cannot ship complete until collections do, because `address` needs a list.
+      - Applications whose composite types are not in the library have to wait for ADR sheni_05 rather than declaring their own today.
+      - Whole categories of field simply cannot be optional -- every date, timestamp, uuid, and enum -- and an application that wanted one has to model the absence itself, or carry a required field it does not always have a value for.
+      - `bool` having no fallback denies the single most commonly wanted optional field, and that will be argued about.
+      - A fallen-back field is indistinguishable from a written one after a read, so a consumer that genuinely needs to know whether a value was supplied cannot ask.
+      - The generic parameter now runs through the struct shape as well as the collection constructors, which is a second place the type parameter propagates.
+  alternatives-rejected:
+    -
+      name: Let every application declare its own address, month, and colour
+      reason: That is ADR sheni_05, and it is wanted, but not as the answer for the common types. If each application declares its own address then no two of them agree on one, which forfeits the interoperability that motivates the group.
+    -
+      name: Ship a large library up front, covering every ISO enum worth having
+      reason: Each type is permanent API and each needs its shape argued. A large initial set is a large set of shapes nobody reviewed individually, and the ones that are wrong are wrong forever.
+    -
+      name: Structs for a person's name, a gender, or a household
+      reason: Frequently requested and excluded on purpose. A shared vocabulary for a contested category does not produce agreement, it produces a single shape that is wrong for the same people everywhere, with the type engine's authority behind it.
+    -
+      name: A decimal or float amount inside `money`
+      reason: Binary floats cannot represent most decimal amounts exactly, and a decimal type would be a dependency and a new primitive. Integer minor units with the ISO 4217 exponent is what financial systems already do and needs neither.
+    -
+      name: An address with line1, line2, and line3 fields
+      reason: It is the familiar shape and it is wrong outside the handful of countries it was drawn from. A list of street lines carries the same data without fixing how many there are.
+    -
+      name: Model an optional field as an absent value, with no default
+      reason: It puts an absent case in every value of every composite type, so every consumer branches on it, and two applications sharing a shape do not see the same fields. A default is decided once by the shape's author instead of repeatedly by each reader.
+    -
+      name: Let the shape's author write a default per field, so any type can be optional
+      reason: It makes every type optional by letting the author nominate a sentinel, and a sentinel is a legal value that some document eventually means literally. It also lets two shapes default the same field differently, which forfeits the agreement about absence that the shared vocabulary is for.
+    -
+      name: Give `bool` a fallback of `false`, since that is what everyone expects
+      reason: `false` is an answer, not an absence. A flag nobody set reading as off is indistinguishable from a flag deliberately turned off, and the failure is silent. Recorded as rejected rather than unconsidered, because it is the one case where the rule is expensive.
+    -
+      name: A closed `ComplexType` with its own struct machinery, separate from layer 3's
+      reason: Two implementations of the same idea, kept in agreement by review. ADR shelishi_01 already says that if the two ever disagree about what a struct is, this crate is right and that one is broken -- which is only enforceable if there is one struct, not two.
+    -
+      name: Ship shapes only, and leave name-to-value tables to consumers
+      reason: The shape is the cheap half. A colour name that does not resolve to a colour, or a month number that does not resolve to a month, sends every application to find the same table, which is the duplication the group is meant to end.
+    -
+      name: Put the library behind a feature flag, so it can be compiled out
+      reason: A vocabulary that might not be present is not a vocabulary two applications can rely on. The interop guarantee is worth more than the compile time.

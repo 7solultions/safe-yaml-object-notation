@@ -1,0 +1,111 @@
+architecture-decision-record:
+  identifier: "sheni_08"
+  title: An unknown belongs in the value space, and the `soft_` prefix marks the types that hold one
+  status: accepted
+  date: "2026-08-29"
+  deciders:
+    - felix
+  superseded-by: ""
+  context: |
+    ADR sheni_03 tied optionality to the type rather than the field: a field
+    may be optional only where its type has a fallback, and `optional` carries
+    no value of its own. That rule is narrow on purpose, and it left a gap it
+    named -- no simple type had a fallback, and neither did `bool`.
+
+    ADR sheni_06 and ADR sheni_07 each filled part of that gap, for dates and
+    for booleans, and each arrived at the same generalisation independently.
+    ADR sheni_06 stated it outright: where a value may genuinely be unknown,
+    the fix is a type whose value space includes the unknown, not a field that
+    might be missing. ADR sheni_07 then applied it without adding to it. Two
+    records stating one rule is the point at which the rule should be its own
+    record, cited rather than repeated.
+
+    The two also introduced a naming pattern without anyone deciding it.
+    `soft_date` and `soft_bool` exist, `soft_date_range` is deferred to a
+    sibling, and a prefix appearing three times is a convention whether or not
+    it was chosen. An unchosen convention drifts, and the drift is easy to
+    predict here: `soft_` reads as lenient in ordinary English, so the next
+    type that is forgiving about whitespace or accepts two spellings of one
+    thing gets called `soft_` too, and the prefix stops carrying information.
+  decision: |
+    The rule, stated once so the type records can cite it. Where a value may
+    genuinely be unknown, model the unknown as a member of the type's value
+    space. Never as a field that might be missing, and never as a legal value
+    of the type borrowed to stand in for one. Absence held in the type is
+    comparable, serialisable, and the same for every consumer. Absence held by
+    the field is a hole each consumer fills differently, which is how a
+    nullable column acquires a second column beside it and a convention nobody
+    wrote down.
+
+    `soft_` is the mark of a type that does this, and it marks nothing else. A
+    type may take the prefix only if it has a fallback and that fallback is a
+    member meaning "not known", drawn as part of the type from the start.
+
+    There are two roots for a fallback and only one of them earns the prefix.
+    ADR sheni_03 gave `string` an empty text, the numerics a zero, and the
+    collections an empty container. Those are identities rather than unknowns:
+    the empty string is also what "set to nothing" means, so nothing is lost by
+    the two coinciding. A `soft_` type's fallback is different in kind. It is a
+    named member asserting that nobody knows, distinguishable from every answer
+    the type can give. Both are fallbacks; only the second is softness. The
+    prefix therefore does not mean "has a fallback" -- it means "contains an
+    unknown".
+
+    Softness is not leniency, and this is the misreading the name invites. A
+    `soft_` type is not more permissive about its text than its strict
+    counterpart. `soft_date` accepts a strictly defined set of forms that
+    happens to include reduced precision; it does not guess, repair, or sniff.
+    Nothing may take this prefix for relaxing validation.
+
+    A `soft_` type is a sibling, never a replacement. `bool` and `soft_bool`
+    both ship, `date` and `soft_date` both ship, and the strict one is never
+    widened to absorb the soft one. A field declared `date` is a promise that
+    the day is known, and that promise is the reason the pair exists rather
+    than one permissive type in the middle.
+
+    The prefix crosses groups. `soft_date` is a simple type in group 2 and
+    `soft_bool` is an enum in group 3, because softness is a property of the
+    value space and not a kind. `TypeGroup` is unaffected, for the reason
+    ADR sheni_05 gave when it refused to file provenance as though it were a
+    kind: two axes do not belong in one enum. This is a naming convention over
+    a semantic property, and it is deliberately nothing more.
+
+    Within the curated library the prefix is reserved, which costs nothing to
+    enforce because groups 2 and 3 are closed and only this crate mints types
+    for them. Layer 3 is a different matter: a schema author may name a
+    declared type whatever they like, and this record documents the convention
+    for `shelishi_schema` rather than enforcing it there.
+
+    `soft_date_range` is the pending third member. Anything after it is argued
+    into the prefix against this rule, by showing where the unknown lives in
+    the value space, or it does not get the prefix.
+  consequences:
+    positive:
+      - The generalisation lives in one record instead of being restated by every type that applies it, and the next one cites rather than re-argues.
+      - The prefix becomes a claim a reader can check, since a `soft_` type must be able to point at the member of its value space that means "not known".
+      - The rule says when not to write one, and it excludes by argument rather than by taste. ADR sheni_09 is the first test of that: it softens fifteen primitives and refuses the sixteenth, because `string` has no text left over to mean "not known".
+      - Separating the identity fallback from the unknown fallback explains why an optional `string` field is admissible without `string` being soft, which is otherwise a confusing pair of facts.
+      - ADR sheni_03's narrow optionality rule stays exactly as it is. This is how the gap it named gets filled, not a loosening of it.
+      - Ruling out leniency at the point the prefix is defined closes the one drift that was actually likely.
+    negative:
+      - A naming convention is not checked by a compiler, so a type that takes the prefix without earning it is caught in review or not at all.
+      - Every concept that earns softness now costs two types, and some schema authors will reach for the soft one because it is more forgiving rather than because the value is genuinely unknown.
+      - `soft_` suggests leniency in ordinary English, and this record forbids exactly that, so the name works against the rule it carries.
+      - The identity-versus-unknown distinction is real but subtle, and it will need explaining more than once.
+      - The convention is documented and not enforced at layer 3, so a schema can ship a `soft_` type containing no unknown at all.
+  alternatives-rejected:
+    -
+      name: A generic wrapper, `Soft<T>`, instead of a prefix on distinct types
+      reason: A wrapper can only add an absence beside `T`, and that is `Option` in different clothes -- the model this record rejects. It also does not fit the types. A reduced-precision `soft_date` is not a `date` plus an unknown, it is a different value space, and `soft_bool`'s unknown participates in operations a wrapper knows nothing about.
+    -
+      name: Leave it as a naming habit, noted in the crate README
+      reason: Three types in, it is a convention already. The failure mode is the fourth type taking the prefix for being lenient, and a line of prose in a README does not decide that argument when it comes.
+    -
+      name: A fifth `TypeGroup` for soft types, or a flag on the group
+      reason: ADR sheni_05 settled that a group classifies by kind alone. Softness is a property of the value space that crosses groups, and putting it in the same enum repeats the category error that record corrected.
+    -
+      name: An `optional_` or `maybe_` prefix
+      reason: Both name the field's behaviour, and ADR sheni_03 deliberately moved the fallback off the field and onto the type. They also suggest a value that may be absent, which is precisely what these types eliminate.
+    -
+      name: A `_soft` suffix, so the strict and soft twins sort next to each other
+      reason: Sorting the family together is worth more than sorting each pair together. A reader scanning the type list should be able to see the whole soft family at once, since the rule they share is the thing worth knowing.

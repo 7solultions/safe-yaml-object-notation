@@ -1,5 +1,5 @@
 architecture-decision-record:
-  identifier: "0008"
+  identifier: "syon_08"
   title: Numeric error codes for parse errors, mirrored per language
   status: accepted
   date: "2026-08-23"

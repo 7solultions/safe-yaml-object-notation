@@ -1,5 +1,5 @@
 architecture-decision-record:
-  identifier: "0002"
+  identifier: "syon_02"
   title: Use pest as the Rust parsing engine
   status: accepted
   date: "2026-07-11"
