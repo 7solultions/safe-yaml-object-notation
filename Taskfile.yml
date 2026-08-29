@@ -112,9 +112,10 @@ tasks:
       - mkdir -p docs/spec docs/decisions
       - cp spec/*.md docs/spec/
       - cp design/architecture/README.md design/architecture/*.syon docs/decisions/
+      - python3 scripts/adr_pdf_link.py
 
   adr-pdf:
-    desc: Render every ADR into build/ADR__<date>.pdf (requires typst)
+    desc: Render every ADR into build/ADR__<date>.pdf (requires typst); docs-sync then offers the newest one for download
     cmds:
       - python3 scripts/adr_book.py
       - typst compile --root . design/architecture/typst/adr_book.typ "build/ADR__$(date +%Y-%m-%d).pdf"
