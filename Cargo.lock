@@ -144,7 +144,7 @@ checksum = "95505c38b4572b2d910cecb0281560f54b440a19336cbbcb27bf6ce6adc6f5a8"
 
 [[package]]
 name = "hodesh_calendar"
-version = "0.1.0"
+version = "2026.0.0"
 dependencies = [
  "luach_types",
 ]
@@ -343,7 +343,7 @@ dependencies = [
 
 [[package]]
 name = "luach_types"
-version = "0.1.0"
+version = "2026.0.0"
 
 [[package]]
 name = "memchr"
@@ -645,7 +645,7 @@ dependencies = [
 
 [[package]]
 name = "shelishi"
-version = "0.1.0"
+version = "2026.0.0"
 dependencies = [
  "sheni",
  "syon-parser",
@@ -653,7 +653,7 @@ dependencies = [
 
 [[package]]
 name = "sheni"
-version = "0.1.0"
+version = "2026.0.0"
 dependencies = [
  "edtf-core",
  "email_address",
@@ -670,7 +670,7 @@ dependencies = [
 
 [[package]]
 name = "shlita_types"
-version = "0.1.0"
+version = "2026.0.0"
 dependencies = [
  "serde",
  "sheni",
@@ -730,7 +730,7 @@ dependencies = [
 
 [[package]]
 name = "syon-cli"
-version = "0.1.0"
+version = "2026.0.0"
 dependencies = [
  "serde_json",
  "syon-parser",
@@ -738,7 +738,7 @@ dependencies = [
 
 [[package]]
 name = "syon-parser"
-version = "0.1.0"
+version = "2026.0.0"
 dependencies = [
  "pest",
  "pest_derive",
@@ -748,7 +748,7 @@ dependencies = [
 
 [[package]]
 name = "syon-python"
-version = "0.1.0"
+version = "2026.0.0"
 dependencies = [
  "pyo3",
  "serde_json",

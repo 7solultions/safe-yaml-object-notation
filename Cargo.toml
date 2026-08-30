@@ -10,3 +10,8 @@ members = [
     "crates/hodesh_calendar",
     "crates/shlita_types",
 ]
+
+# Inherited by every member with `version.workspace = true`, so a release is
+# one line here rather than eight edits that can disagree.
+[workspace.package]
+version = "2026.0.0"   # `{year}.{major}.{patch}`, as the suite uses
