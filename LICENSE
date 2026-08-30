@@ -1,14 +1,15 @@
 ```syon
 licenses:
-    Creators licenses
-        file: creators.license.sycon
+    Creators Licenses:
+        file: Creators.license.syon
         version: 1.0
         tags:
           - #prefered
           - #company
     AGPL:
-        file: AGPL.license.sycon
+        file: AGPL.license.syon
         version: 3.0
         tags:
           - #open
-          = #copyleft
+          - #copyleft
+```
