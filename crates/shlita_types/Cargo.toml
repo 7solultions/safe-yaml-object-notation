@@ -1,0 +1,14 @@
+[package]
+name = "shlita_types"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "shlita_types"
+path = "src/lib.rs"
+crate-type = ["cdylib", "staticlib", "rlib"]
+
+[dependencies]
+sheni = { path = "../sheni_types" }
+serde = { version = "1", features = ["derive"] }
+time = { version = "0.3.55", default-features = false }

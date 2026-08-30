@@ -56,6 +56,11 @@ tasks:
     cmds:
       - cargo build -p hodesh_calendar
 
+  build-shlita-types:
+    desc: Compile the shlita_types library crate
+    cmds:
+      - cargo build -p shlita_types
+
   run-cli-binary:
     desc: Parse a .syon file and print the AST as JSON
     cmds:
@@ -70,6 +75,11 @@ tasks:
     desc: Run unit tests for hodesh_calendar
     cmds:
       - cargo test -p hodesh_calendar
+
+  test-shlita-types:
+    desc: Run unit tests for shlita_types
+    cmds:
+      - cargo test -p shlita_types
 
   check-all:
     desc: Type-check the whole workspace without producing artifacts

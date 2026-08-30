@@ -669,6 +669,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "shlita_types"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "sheni",
+ "time",
+]
+
+[[package]]
 name = "slab"
 version = "0.4.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"

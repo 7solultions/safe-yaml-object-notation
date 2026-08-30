@@ -1,7 +1,7 @@
 architecture-decision-record:
   identifier: "shlita_01"
   title: IEC 61131-3 splits into a type vocabulary and a scan runtime, and neither one is a language
-  status: proposed
+  status: accepted
   date: "2026-08-29"
   deciders:
     - felix

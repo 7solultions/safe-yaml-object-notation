@@ -8,4 +8,5 @@ members = [
     "crates/shelishi_schema",
     "crates/hodesh_types",
     "crates/hodesh_calendar",
+    "crates/shlita_types",
 ]
