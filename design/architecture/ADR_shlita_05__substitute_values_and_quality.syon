@@ -1,0 +1,165 @@
+architecture-decision-record:
+  identifier: "shlita_05"
+  title: A signal that cannot be read keeps a defined value and gains a bad quality, and the reaction to that is declared per module
+  status: accepted
+  date: "2026-08-30"
+  deciders:
+    - felix
+  superseded-by: ""
+  open-questions:
+    - How the per-module diagnostic bits are addressed from within a program -- a reserved area of the image, or named system variables -- is left to the crate that lays out the image.
+    - Whether a program reads a signal's quality through a function, an accessor on the variable, or a parallel variable it declares itself is a question for ADR shlita_03's dialect rather than for the runtime.
+  context: |
+    ADR shlita_04 settled who owns the image and when it is filled, and it
+    ruled that a failure during `read` leaves the affected values stale, marks
+    the driver faulted and lets `process` run anyway. It then named the cost
+    of that ruling in its own negatives: a stale image looks exactly like a
+    healthy image that is not changing, and the fault bit is the only thing
+    that distinguishes them. It did not say what that bit is, where it lives,
+    or what a program is supposed to do about it.
+
+    The question that forces all of the rest is whether a signal is required
+    for processing at all. Without an answer, a controller has only two
+    behaviours available and both are wrong. It can stop on any fault, which
+    makes an engine embedded in a tool hostage to the least reliable thing
+    attached to it -- one flaky broker and nothing runs. Or it can continue
+    through every fault, which means a lost input reads as whatever was there
+    an hour ago and the program cannot tell.
+
+    IEC 61131-3 does not answer this, because it assumes terminals that are
+    physically present and a scan that samples them. The question only arises
+    once the wire can be a network. The fieldbus profiles do answer it, and
+    they have answered it for as long as remote I/O has existed: a signal that
+    cannot be read takes a substitute value, and it carries a status that says
+    the reading is not trustworthy. Profinet and Profibus call the first one
+    the substitute value; OPC DA's quality byte and OPC UA's StatusCode are
+    the second. This is ADR sheni_10's habit again -- where a standard already
+    answers a question, the answer is looked up rather than decided.
+
+    One neighbouring answer in this workspace cannot be borrowed. Sheni's soft
+    types put the unknown inside the value space, and `soft_bool` is
+    three-valued for exactly that reason. But ADR shlita_01 refused to reuse
+    sheni's primitives and kept IEC's BOOL two-valued, so widening a value
+    here to carry its own uncertainty would undo that decision rather than
+    apply it.
+  decision: |
+    A signal is one of three things with respect to processing, and the tag
+    map says which.
+
+    It is *required* when a POU reads it and cannot produce a meaningful
+    output without a real reading. It is *optional* when a POU reads it but a
+    defined stand-in is acceptable. It is *unused* when the tag map declares
+    it and no POU reads it at all, which is an ordinary condition rather than
+    a mistake -- a signal may be logged, forwarded or simply reserved.
+
+    An optional signal must declare a substitute value. This is not a
+    convenience and it is not defaultable: a process image has no null, the
+    program will read something, and so that something has to be decided
+    before the run rather than discovered during it. The substitute takes one
+    of the three forms the fieldbus profiles already use, and no fourth is
+    invented -- zero, hold the last good value, or a configured constant. Hold
+    is not the safe choice it looks like, which is why it is spelled rather
+    than assumed.
+
+    Quality sits beside the value, not inside it. Every signal in the image
+    has a status alongside it, taking OPC UA's three levels: good, uncertain,
+    bad. A substitute value is therefore honest -- it is a real value the
+    program can compute with, marked as not having come from the wire -- where
+    a value that quietly stood in for a missing reading would be
+    indistinguishable from a true one. Keeping quality in a parallel plane is
+    also what preserves ADR shlita_01: BOOL stays two-valued, the elementary
+    types are untouched, and nothing in the type vocabulary has to learn about
+    faults.
+
+    Requiredness is checked against the loaded program rather than merely
+    believed. The engine knows which addresses the POUs read, so at load it
+    can compare the declaration with the use and turn three cases into
+    diagnostics: a signal declared required that nothing reads is a stale
+    declaration and warns; a signal declared optional that a POU reads with no
+    substitute value declared is an error and refuses to load; a signal
+    declared unused that a POU reads is an error for the same reason, because
+    it has no substitute either. Configuration mistakes that would otherwise
+    surface as a wrong number at three in the morning become load-time errors
+    with codes.
+
+    The reaction to a fault is declared per module, not once for the engine.
+    Real controllers configure fault reaction per device rather than globally,
+    and the reason is that the modules genuinely differ: the loss of a safety
+    interlock and the loss of a temperature trend are not the same event. Three
+    policies. Under `stop`, the engine enters a fault state, outputs are driven
+    to their configured safe state, and `process` refuses to run until the
+    fault is acknowledged. Under `substitute`, the substitute values are
+    applied, the affected signals go to bad quality, and the scan continues.
+    Under `ignore`, the fault is recorded in diagnostics and nothing else
+    changes.
+
+    The policy field is mandatory and has no default. Both available defaults
+    are dangerous and they are dangerous in opposite directions, so neither
+    can be the quiet one: defaulting to `stop` makes an embedded engine
+    hostage to its least reliable transport, and defaulting to `substitute`
+    lets a lost interlock read as zero forever without anyone having chosen
+    that. ADR sheni_02 refused to let a duration sniff which convention it had
+    been handed and turned three conventions into three types; this is the
+    same refusal, and the cost is one field written once per module.
+
+    `diagnostics` is a read-only view. It reports, per driver, the driver's
+    state, the last error code, the count of consecutive failures and the time
+    of the last good read; and for the engine, its state, the scan count, the
+    last scan duration and a bounded ring of recent events. The ring is the
+    diagnostic buffer that every real CPU carries, and it is the single most
+    useful thing available when a fault is intermittent, because the fault is
+    gone by the time anybody looks.
+
+    What `diagnostics` deliberately does not do is decide. The policy decides,
+    `read` enforces, `diagnostics` reports, and the quality plane is how the
+    program itself sees the same event. Making the query the decision point
+    would put control flow behind a call the host has to remember to make
+    between `read` and `process`, and a safety property that depends on
+    someone remembering to ask a question is not a property.
+
+    Diagnostic status is also mapped into the image as bits, the way a real
+    CPU maps rack and module health, so a program can read whether a module is
+    healthy without a round trip through the host. A controller that can only
+    learn about its own faults by being told from outside cannot be the thing
+    that reacts to them.
+
+    Fault, substitute and quality errors take the 750-769 sub-band ADR
+    shlita_01 reserved for the scan runtime.
+  consequences:
+    positive:
+      - A stale value and a fresh one are distinguishable, which is the defect ADR shlita_04 recorded against itself, closed.
+      - The unknown is carried beside the value rather than inside it, so the elementary types stay exactly as ADR shlita_01 defined them and no function has to learn a third case.
+      - A program can react to a degraded input in its own logic, rather than the fault being visible only to the host that embeds it.
+      - Comparing declared requiredness against actual use turns a class of configuration mistakes into load-time errors instead of runtime surprises.
+      - Per-module policy lets a lost interlock and a lost temperature trend have different consequences, which is the distinction that makes a fault policy worth having at all.
+      - Substitute value and quality are looked up from the fieldbus profiles rather than invented, so an engineer who has configured remote I/O before already knows what the fields mean.
+      - A bounded diagnostic ring makes intermittent faults investigable after they have stopped happening.
+    negative:
+      - Every signal in the image now costs a status beside its value, which is memory spent on every scan whether or not anything is faulted.
+      - A mandatory policy field with no default is friction on every module, and the first reaction to friction is to write the same value everywhere without thinking about it.
+      - Three signal states, three substitute forms and three policies is a configuration surface with twenty-seven combinations, not all of which are sensible, and nothing but review prevents the silly ones.
+      - Hold-last as a substitute form re-creates precisely the ambiguity this record set out to remove, and only the quality bit distinguishes it -- a program that ignores quality is exactly as badly off as before.
+      - Mapping diagnostics into the image means the image layout carries a reserved region, and reserved regions are how address spaces become hard to change later.
+      - The load-time cross-check needs to know which addresses a POU reads, which is a static analysis of the program, and it will be wrong in the direction of over-reporting on anything computed at runtime.
+  alternatives-rejected:
+    -
+      name: One fault policy for the whole engine
+      reason: It forces the loss of an interlock and the loss of a trend to have the same consequence. Whichever setting is chosen is wrong for half the modules, and the workaround is to split the program across engines, which is a worse configuration surface than one field.
+    -
+      name: Let an optional signal simply be absent, and read as null
+      reason: A process image has no null and cannot acquire one without every function in ADR shlita_01's standard library growing a third case. The program will read something regardless, so the only question is whether that value is chosen deliberately or by accident.
+    -
+      name: Carry the uncertainty in the value, reusing sheni's soft types
+      reason: It reverses ADR shlita_01, which kept IEC's two-valued BOOL rather than sheni's three-valued soft twin. The soft types answer a different question -- data that was never known -- where this is data that is known but not currently readable, and conflating them would make every arithmetic function ask about provenance.
+    -
+      name: A single fault flag per driver, with no per-signal quality
+      reason: A driver commonly carries dozens of signals and fails for one of them, so a flag at driver granularity is either over-broad or wrong. It also gives the program nothing to branch on at the point where it actually uses the value.
+    -
+      name: Let `diagnostics` decide whether the cycle proceeds
+      reason: It puts control flow behind a query the host must remember to make between `read` and `process`. A fault reaction that depends on someone asking about it is not a reaction, and it makes a read-only view into a state transition.
+    -
+      name: Derive requiredness entirely from use, with nothing declared
+      reason: Use says whether a signal is read, not whether a stand-in is acceptable for it. Those are different facts and only the second one is a judgement about the process. Deriving both would mean every read signal is required, which is the global policy this record rejected.
+    -
+      name: Default the module policy to `stop`, as the conservative choice
+      reason: It is conservative for a controller wired to a plant and reckless for an engine embedded in a tool, where the least reliable transport attached to it would then be able to halt everything. Conservative is not a property of a setting on its own; it depends on what is on the other end, which is exactly what the field exists to record.

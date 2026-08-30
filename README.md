@@ -11,6 +11,7 @@ crates/
   shelishi_schema/ # Shelishi (layer 3), user-declared types from a runtime schema
   hodesh_types/    # calendar-agnostic day count, week, and the calendar contract
   hodesh_calendar/ # the calendars themselves — Gregorian, and hodesh
+  shlita_types/    # IEC 61131-3 elementary types and standard functions
 syon-go/         # independent, dependency-free Go implementation
 spec/            # language specification
 ```
@@ -74,6 +75,8 @@ alongside rather than on top of the SYON stack.
 | [shlita_01](design/architecture/ADR_shlita_01__two_crates_and_scope.syon) | IEC 61131-3 splits into a type vocabulary and a scan runtime, and neither one is a language |
 | [shlita_02](design/architecture/ADR_shlita_02__fbd_and_sfc_are_documents.syon) | FBD and SFC are documents rather than syntaxes, and PLCopen already names their parts |
 | [shlita_03](design/architecture/ADR_shlita_03__structured_text_dialect.syon) | Structured Text takes Python's statements and IEC's types, and is not Python |
+| [shlita_04](design/architecture/ADR_shlita_04__engine_owns_its_drivers.syon) | The engine owns the image and its drivers, and one scan is three calls rather than one |
+| [shlita_05](design/architecture/ADR_shlita_05__substitute_values_and_quality.syon) | A signal that cannot be read keeps a defined value and gains a bad quality, and the reaction to that is declared per module |
 
 ### Printable edition
 

@@ -1,0 +1,143 @@
+architecture-decision-record:
+  identifier: "shlita_04"
+  title: The engine owns the image and its drivers, and one scan is three calls rather than one
+  status: accepted
+  date: "2026-08-30"
+  deciders:
+    - felix
+  superseded-by: ""
+  context: |
+    ADR shlita_01 scoped the control crates and named the line between them,
+    but it said nothing about where a value enters the runtime or where it
+    leaves. That silence is not a small gap. A controller with no connection
+    to anything outside its own process is not a controller; it is an
+    interpreter with a clock. The scan contract that ADR shlita_01 asked TON to
+    force is only half a contract until the other half says what is being
+    scanned.
+
+    IEC 61131-3 assumes the answer rather than stating it, because the
+    standard was written for hardware that has terminals. The program reads an
+    input image, evaluates, and writes an output image; the input image is
+    sampled from real inputs before the cycle and the output image is driven
+    onto real outputs after it. Three properties fall out of that arrangement
+    and every one of them is load-bearing.
+
+    Inputs are frozen for the whole cycle, so logic that reads the same input
+    twice reads the same value, and no rung can disagree with the rung above
+    it about what the world looked like. An output is a level re-asserted
+    every cycle rather than a command issued once, so a coil assignment means
+    "and still" rather than "fire". And the image is sized before the run
+    starts, so no address can fail to resolve while the machine is moving.
+
+    A soft PLC has no terminals. It keeps those three properties or it stops
+    having PLC semantics and becomes an event loop with unusual syntax. The
+    question the standard leaves implicit therefore has to be answered
+    explicitly here: what owns the image, who fills it, and when.
+
+    An earlier sketch answered it by keeping the engine pure -- the host owned
+    the drivers and handed in a buffer, one call taking inputs and returning
+    outputs. It fused the standard's three phases into one call, and it left
+    the image belonging to nobody in particular.
+  decision: |
+    The engine owns the image and the drivers, and one scan is three calls:
+    `read`, `process` and `write`. They are the standard's three phases under
+    the standard's names, and a caller that wants them fused can write the
+    three lines itself.
+
+    Splitting them is not a formality. `process` alone, against an image the
+    caller filled by hand, is the whole engine with no drivers attached, which
+    is how the golden-trace tests run and how a program is exercised before
+    any hardware exists. Splitting them is also what makes forcing and
+    single-stepping possible at all, which is the first thing anybody asks a
+    controller to do once it misbehaves, and an engineering station that
+    cannot hold the outputs while the logic runs is not much of one.
+
+    The image is created when the program is loaded, not by a separate call.
+    The program declares its variables; their number and their types size the
+    image; an engine holding a program therefore always holds an image, and an
+    engine with a program but no image is never a reachable state. Registration
+    comes after, and binds a driver's own address space -- Modbus coils,
+    an MQTT topic, a GPIO line -- onto addresses the program has already
+    declared. Because the image exists first, registration can reject a tag
+    that names an address no program declared, at load time and by error code,
+    instead of at three in the morning by returning a zero.
+
+    A driver is a trait with two methods, one called during `read` and one
+    during `write`, and the engine holds them as owned trait objects rather
+    than borrowing them. Reading mutates a driver -- a socket advances, a file
+    handle moves -- so a shared reference could not do the work, and ownership
+    is what lets the engine number the drivers, report faults against those
+    numbers, and shut them down in a defined order.
+
+    A driver whose transport is slower than a scan does not perform its
+    transport inside `read`. It runs on its own thread or task, keeps a
+    buffer of the most recent value it has seen, and `read` copies from that
+    buffer. The copy is bounded and cannot block, so network latency never
+    enters the cycle time and the snapshot property survives contact with
+    MQTT. The same buffer read in the other direction is how a slow output
+    works: `write` deposits the level, and the driver's own task pushes it.
+
+    The clock is a parameter of `process` rather than something the engine
+    reads. This is the injected clock from the earlier plan, kept: two runs
+    over the same recorded trace produce the same outputs on any machine, and
+    a determinism that can be tested is worth more here than one that can only
+    be asserted. Reading the clock inside the engine would make every timer
+    test a race.
+
+    A failure in `read` does not abort the cycle. The affected part of the
+    image keeps its last known values, the driver is marked faulted, `read`
+    returns the fault, and `process` runs anyway. This is what real
+    controllers do, and it is the safer of the two behaviours: a program that
+    keeps scanning can see the fault bit and drive its outputs to a safe
+    state, whereas a program that is not scanning cannot do anything at all.
+    Faults take the 750-769 sub-band that ADR shlita_01 already reserved for
+    the scan runtime.
+
+    The host still owns the loop. Nothing here schedules anything, sleeps, or
+    takes a thread; the three methods are called by whatever already runs in
+    the embedding tool. That was the point of an embeddable engine in the
+    first place and it survives the engine taking ownership of its drivers,
+    because owning a driver and owning the scheduler are different things.
+
+    The tag map that binds drivers to addresses is a SYON document validated
+    by a shelishi schema, on the same reasoning ADR shlita_02 gave for FBD and
+    SFC: it is configuration data with a shape, and this workspace already has
+    a way to declare a shape and check a document against it. It does not need
+    a syntax of its own.
+  consequences:
+    positive:
+      - The image has exactly one owner, so there is no buffer travelling between host and engine and no question about who may write to it during a cycle.
+      - Running `process` alone against a hand-filled image gives the whole engine under test with no drivers, no sockets and no clock, which is the condition the golden-trace tests need.
+      - Forcing, holding outputs and single-stepping are expressible, because the phase that talks to the world is a different call from the phase that computes.
+      - Binding a driver to an image that already exists turns a whole class of configuration mistakes into load-time errors with numbers.
+      - Slow transports are pushed out of the cycle by construction rather than by discipline, so the snapshot property does not depend on every driver author being careful.
+      - Keeping the loop with the host means the engine embeds in a tool that already has a runtime, instead of demanding to be the runtime.
+      - Continuing to scan through an input fault leaves the program able to respond to the fault, which is the only arrangement in which a safe state is reachable.
+    negative:
+      - The engine is no longer a pure function of its arguments, so its tests need either registered drivers or the discipline of driving `process` directly, and the second is a convention rather than a compiler-enforced rule.
+      - Three calls where there was one is three chances for a caller to get the order wrong, or to skip `write` and wonder why nothing moves.
+      - Owned trait objects mean dynamic dispatch on every image transfer and a driver that cannot be inspected by concrete type once registered.
+      - A stale image after a read fault looks exactly like a healthy image that is not changing, so the fault bit is the only thing distinguishing them, and a program that ignores it will act on values from an hour ago.
+      - The tag map is one more document kind whose schema has to be written before anything can be configured, and it lands on a schema layer that ADR shlita_02 already blocked on.
+  alternatives-rejected:
+    -
+      name: One fused call taking the inputs and returning the outputs
+      reason: It hides the standard's three phases behind one, which makes forcing and single-stepping inexpressible, and it makes every test need a driver because there is no way to reach the compute phase alone. It also leaves the image owned by the caller, which is the ownership question this record exists to settle.
+    -
+      name: The host owns the drivers and passes the image in
+      reason: The image then belongs to nobody, tag bindings cannot be validated at load because there is nothing to validate them against, and fault bookkeeping has no home. It also pushes the read-buffer-copy-write dance onto every embedding tool, which is the same code written repeatedly and differently.
+    -
+      name: A separate `create_image` call before registration
+      reason: It admits a state -- an engine with a program and no image -- that is never valid and would have to be checked for everywhere. The program already carries everything needed to size the image, so the call has no information to add.
+    -
+      name: The engine owns the loop and exposes `run`
+      reason: A library that takes the thread cannot be embedded in a tool that already has one, and it would have to read the clock itself, which trades a testable determinism for an untestable one.
+    -
+      name: Drivers as generic parameters rather than trait objects
+      reason: The driver set is heterogeneous and known only at configuration time, so monomorphising it would force the host to spell out a tuple of concrete types and would put the tag map's shape into the type system, where a configuration file cannot reach it.
+    -
+      name: Abort the cycle when a driver read fails
+      reason: A controller that stops scanning cannot drive anything to a safe state, cannot report why, and cannot recover when the transport comes back. Stale values with a fault bit leave every one of those open.
+    -
+      name: Read the clock inside `process`
+      reason: It makes a recorded trace unreplayable and every timer test a race against the machine it runs on, which gives up the one form of determinism a soft PLC can actually offer.

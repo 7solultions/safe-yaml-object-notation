@@ -16,6 +16,8 @@
 - `ADR_shlita_01__two_crates_and_scope.syon`
 - `ADR_shlita_02__fbd_and_sfc_are_documents.syon`
 - `ADR_shlita_03__structured_text_dialect.syon`
+- `ADR_shlita_04__engine_owns_its_drivers.syon`
+- `ADR_shlita_05__substitute_values_and_quality.syon`
 - `ADR_syon_01__record_architecture_decission.syon`
 - `ADR_syon_02__pest_as_the_rust_parsing_engine.syon`
 - `ADR_syon_03__preflight_scan_for_forbidden_constructs.syon`

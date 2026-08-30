@@ -36,9 +36,11 @@ CI (see `examples-valid` and `go-build` in
 | [sheni_08](ADR_sheni_08__soft_types.syon) | An unknown belongs in the value space, and the `soft_` prefix marks the types that hold one | Accepted |
 | [sheni_09](ADR_sheni_09__soft_primitives.syon) | Every primitive gets a soft twin except `string`, which cannot spell its own unknown | Accepted |
 | [sheni_10](ADR_sheni_10__soft_date_ranges.syon) | A range whose ends may be unknown is one type, and the standard chooses its fallback | Accepted |
-| [shlita_01](ADR_shlita_01__two_crates_and_scope.syon) | IEC 61131-3 splits into a type vocabulary and a scan runtime, and neither one is a language | Proposed |
+| [shlita_01](ADR_shlita_01__two_crates_and_scope.syon) | IEC 61131-3 splits into a type vocabulary and a scan runtime, and neither one is a language | Accepted |
 | [shlita_02](ADR_shlita_02__fbd_and_sfc_are_documents.syon) | FBD and SFC are documents rather than syntaxes, and PLCopen already names their parts | Proposed |
 | [shlita_03](ADR_shlita_03__structured_text_dialect.syon) | Structured Text takes Python's statements and IEC's types, and is not Python | Proposed |
+| [shlita_04](ADR_shlita_04__engine_owns_its_drivers.syon) | The engine owns the image and its drivers, and one scan is three calls rather than one | Accepted |
+| [shlita_05](ADR_shlita_05__substitute_values_and_quality.syon) | A signal that cannot be read keeps a defined value and gains a bad quality, and the reaction to that is declared per module | Accepted |
 
 Each layer numbers its own decisions, and both the file name and the
 `identifier` field carry the prefix that says which layer — `syon` for the
