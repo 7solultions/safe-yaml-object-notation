@@ -644,15 +644,15 @@ dependencies = [
 ]
 
 [[package]]
-name = "shelishi"
+name = "shelishi_schema"
 version = "2026.0.0"
 dependencies = [
- "sheni",
+ "sheni_types",
  "syon-parser",
 ]
 
 [[package]]
-name = "sheni"
+name = "sheni_types"
 version = "2026.0.0"
 dependencies = [
  "edtf-core",
@@ -673,7 +673,7 @@ name = "shlita_types"
 version = "2026.0.0"
 dependencies = [
  "serde",
- "sheni",
+ "sheni_types",
  "time",
 ]
 
