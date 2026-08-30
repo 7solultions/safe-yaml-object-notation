@@ -1,10 +1,10 @@
 [package]
-name = "hodesh_types"
+name = "luach_types"
 version = "0.1.0"
 edition = "2021"
 
 [lib]
-name = "hodesh_types"
+name = "luach_types"
 path = "src/lib.rs"
 crate-type = ["cdylib", "staticlib", "rlib"]
 

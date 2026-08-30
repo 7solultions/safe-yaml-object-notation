@@ -13,7 +13,7 @@ architecture-decision-record:
     - Which calendar joins next. Julian and the ISO week date were both offered and both deferred, so the two-calendar design has not yet been tested against a third.
     - Whether the error band 601-699 is the right neighbour to sheni's bands, given the hodesh crates do not depend on sheni and may never be reported alongside it.
   context: |
-    Two crates were asked for, hodesh_calendar and hodesh_types, to hold date
+    Two crates were asked for, hodesh_calendar and luach_types, to hold date
     types, conversions between calendars, and a new calendar of the project's
     own. The question this record answers is what separates them, and how
     conversion works, because both answers are cheap now and expensive later.
@@ -40,7 +40,7 @@ architecture-decision-record:
     sheni and shelishi -- a lower layer that defines the shapes, an upper one
     that supplies the instances.
 
-    hodesh_types holds what is true of every calendar and nothing about any
+    luach_types holds what is true of every calendar and nothing about any
     particular one -- the day count, the week, the contract a calendar
     implements, and the error a date raises when it cannot exist.
     hodesh_calendar holds the calendars.
@@ -64,7 +64,7 @@ architecture-decision-record:
     and because a calendar meant as a standard cannot have a date that depends
     on where the reader is standing. No local offset, no summer time.
 
-    Errors take the 601-699 band and a HodeshCode enum, following the same
+    Errors take the 601-699 band and a LuachCode enum, following the same
     discipline ADR syon_08 set for parse errors and sheni carried into the
     type layer -- the number is API, the wording is not. The band sits above
     the 501-599 that sheni reserved for shelishi, so a hodesh code and a sheni
@@ -78,7 +78,7 @@ architecture-decision-record:
     positive:
       - Adding a calendar is one file that mentions no other calendar, and it is connected to all of them the moment it compiles.
       - The arithmetic that is easy to get wrong is written once per calendar rather than once per pair, so an exhaustive round-trip test over centuries actually covers it.
-      - A calendar defined outside this workspace can implement the contract against hodesh_types alone and interoperate, without either side importing the other.
+      - A calendar defined outside this workspace can implement the contract against luach_types alone and interoperate, without either side importing the other.
       - The weekday is the same in every calendar by construction rather than by agreement, because conversion is by day and the week is a property of the day.
       - Fixing the day boundary at midnight UTC in one place means no calendar can quietly disagree about it, and no date here depends on a timezone.
       - The layering matches sheni and shelishi, so the workspace has one story about what a types crate is rather than two.

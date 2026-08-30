@@ -9,7 +9,7 @@ crates/
   syon-python/   # PyO3 bindings exposing syon-parser to Python
   sheni_types/     # Sheni (layer 2), the type layer over the parsed AST
   shelishi_schema/ # Shelishi (layer 3), user-declared types from a runtime schema
-  hodesh_types/    # calendar-agnostic day count, week, and the calendar contract
+  luach_types/    # calendar-agnostic day count, week, and the calendar contract
   hodesh_calendar/ # the calendars themselves — Gregorian, and hodesh
   shlita_types/    # IEC 61131-3 elementary types and standard functions
 syon-go/         # independent, dependency-free Go implementation

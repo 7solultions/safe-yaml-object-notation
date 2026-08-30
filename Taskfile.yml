@@ -46,10 +46,10 @@ tasks:
     cmds:
       - cargo test -p shelishi
 
-  build-hodesh-types:
-    desc: Compile the hodesh_types library crate
+  build-luach-types:
+    desc: Compile the luach_types library crate
     cmds:
-      - cargo build -p hodesh_types
+      - cargo build -p luach_types
 
   build-hodesh-calendar:
     desc: Compile the hodesh_calendar library crate
@@ -66,10 +66,10 @@ tasks:
     cmds:
       - cargo run -p syon-cli -- {{.CLI_ARGS}}
 
-  test-hodesh-types:
-    desc: Run unit tests for hodesh_types
+  test-luach-types:
+    desc: Run unit tests for luach_types
     cmds:
-      - cargo test -p hodesh_types
+      - cargo test -p luach_types
 
   test-hodesh-calendar:
     desc: Run unit tests for hodesh_calendar

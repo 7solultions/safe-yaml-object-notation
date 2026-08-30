@@ -6,7 +6,7 @@ members = [
     "crates/syon-cli",
     "crates/sheni_types",
     "crates/shelishi_schema",
-    "crates/hodesh_types",
+    "crates/luach_types",
     "crates/hodesh_calendar",
     "crates/shlita_types",
 ]

@@ -146,12 +146,8 @@ checksum = "95505c38b4572b2d910cecb0281560f54b440a19336cbbcb27bf6ce6adc6f5a8"
 name = "hodesh_calendar"
 version = "0.1.0"
 dependencies = [
- "hodesh_types",
+ "luach_types",
 ]
-
-[[package]]
-name = "hodesh_types"
-version = "0.1.0"
 
 [[package]]
 name = "humantime"
@@ -344,6 +340,10 @@ checksum = "224399e74b87b5f3557511d98dff8b14089b3dadafcab6bb93eab67d3aace965"
 dependencies = [
  "scopeguard",
 ]
+
+[[package]]
+name = "luach_types"
+version = "0.1.0"
 
 [[package]]
 name = "memchr"

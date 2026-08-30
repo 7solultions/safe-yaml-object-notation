@@ -6,17 +6,22 @@
 //! day past the end of the month?" by matching a number, not by matching
 //! message text. The code is API; the wording is not.
 //!
-//! Codes are three digits in the `601-699` band, which the hodesh crates take
-//! for themselves. The bands below it are spoken for -- `1-499` by `sheni`'s
-//! four type groups and `501-599` by `shelishi_schema` -- so a hodesh code and
-//! a sheni code never collide even where the two are reported side by side.
+//! Codes are three digits in the `601-699` band, which the calendar crates
+//! take for themselves. The bands below it are spoken for -- `1-499` by
+//! `sheni`'s four type groups and `501-599` by `shelishi_schema` -- so a
+//! calendar code and a sheni code never collide even where the two are
+//! reported side by side.
+//!
+//! One band covers every calendar rather than one band each. A month out of
+//! range is the same failure whichever calendar rejected it, and the calendar
+//! that did is carried on the [`DateError`] itself.
 
 use std::fmt;
 
 /// A stable numeric identifier for a date that cannot exist.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(u16)]
-pub enum HodeshCode {
+pub enum LuachCode {
     /// The month number is outside `1..=months_in_year` for that year. In a
     /// lunisolar calendar the bound depends on the year, so month 13 is legal
     /// in a leap year and this error in a common one.
@@ -34,14 +39,14 @@ pub enum HodeshCode {
     DayOutOfRepresentableRange = 605,
 }
 
-impl HodeshCode {
+impl LuachCode {
     /// The numeric value, for a caller that wants to store or transmit it.
     pub fn number(self) -> u16 {
         self as u16
     }
 }
 
-impl fmt::Display for HodeshCode {
+impl fmt::Display for LuachCode {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.number())
     }
@@ -55,13 +60,13 @@ impl fmt::Display for HodeshCode {
 /// obvious.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DateError {
-    code: HodeshCode,
+    code: LuachCode,
     calendar: &'static str,
     message: String,
 }
 
 impl DateError {
-    pub fn new(code: HodeshCode, calendar: &'static str, message: impl Into<String>) -> Self {
+    pub fn new(code: LuachCode, calendar: &'static str, message: impl Into<String>) -> Self {
         DateError {
             code,
             calendar,
@@ -70,7 +75,7 @@ impl DateError {
     }
 
     /// The numeric code, stable across message rewordings.
-    pub fn code(&self) -> HodeshCode {
+    pub fn code(&self) -> LuachCode {
         self.code
     }
 

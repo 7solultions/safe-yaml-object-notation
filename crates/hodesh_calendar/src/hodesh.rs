@@ -74,14 +74,14 @@
 //! # What is not here
 //!
 //! Nothing in this calendar depends on a location or a season boundary. Days
-//! begin at midnight UTC ([`hodesh_types::FixedDay`]), so a hodesh date is
+//! begin at midnight UTC ([`luach_types::FixedDay`]), so a hodesh date is
 //! the same date everywhere on Earth at the same instant, and there is no
 //! summer time to shift it.
 
 use std::fmt;
 use std::str::FromStr;
 
-use hodesh_types::{CalendarDate, DateError, FixedDay, HodeshCode};
+use luach_types::{CalendarDate, DateError, FixedDay, LuachCode};
 
 use crate::gregorian::GregorianDate;
 
@@ -189,7 +189,7 @@ impl HodeshDate {
         let last_month = months_in_year(year);
         if month < 1 || month > last_month {
             return Err(DateError::new(
-                HodeshCode::MonthOutOfRange,
+                LuachCode::MonthOutOfRange,
                 CALENDAR,
                 format!(
                     "month {month} does not exist in year {year}, which has {last_month} months"
@@ -199,7 +199,7 @@ impl HodeshDate {
         let last_day = days_in_month(year, month);
         if day < 1 || day > last_day {
             return Err(DateError::new(
-                HodeshCode::DayOutOfRange,
+                LuachCode::DayOutOfRange,
                 CALENDAR,
                 format!(
                     "day {day} does not exist in month {month} of {year}, which has {last_day} days"
@@ -303,7 +303,7 @@ impl HodeshDate {
 
 impl fmt::Display for HodeshDate {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{:04}-{:02}-{:02}", self.year, self.month, self.day)
+        f.write_str(&luach_types::format_ymd(self.year, self.month, self.day))
     }
 }
 
@@ -311,7 +311,7 @@ impl FromStr for HodeshDate {
     type Err = DateError;
 
     fn from_str(s: &str) -> Result<HodeshDate, DateError> {
-        let (year, month, day) = crate::parse_ymd(s, CALENDAR)?;
+        let (year, month, day) = luach_types::parse_ymd(s, CALENDAR)?;
         HodeshDate::new(year, month, day)
     }
 }
@@ -371,7 +371,7 @@ mod tests {
         assert!(HodeshDate::new(2, 13, 1).is_ok());
         assert_eq!(
             HodeshDate::new(0, 13, 1).unwrap_err().code(),
-            HodeshCode::MonthOutOfRange
+            LuachCode::MonthOutOfRange
         );
         assert_eq!(days_in_month(0, 13), 0);
     }
@@ -487,7 +487,7 @@ mod tests {
         assert_eq!("0026-05-17".parse::<HodeshDate>().unwrap(), date);
         assert_eq!(
             "0026-05-99".parse::<HodeshDate>().unwrap_err().code(),
-            HodeshCode::DayOutOfRange
+            LuachCode::DayOutOfRange
         );
     }
 }

@@ -5,7 +5,7 @@ variant of the Hebrew calendar that keeps the astronomy and drops the
 inheritance — no month names, no observational machinery, no timezone.
 
 It sits alongside the SYON stack rather than on top of it, in two crates:
-`hodesh_types` holds what is true of every calendar, and `hodesh_calendar`
+`luach_types` holds what is true of every calendar, and `hodesh_calendar`
 holds the calendars themselves.
 
 The whole month rule is one line:
@@ -190,7 +190,7 @@ zero is arithmetic that is wrong somewhere.
 
 ## Using it in code
 
-Two crates. `hodesh_types` holds the calendar-agnostic pieces — a day count,
+Two crates. `luach_types` holds the calendar-agnostic pieces — a day count,
 the week, and the contract a calendar implements. `hodesh_calendar` holds the
 calendars: the proleptic Gregorian one, and hodesh.
 
@@ -199,7 +199,7 @@ day count and how to come back, and every pair is connected for free:
 
 ```rust
 use hodesh_calendar::{GregorianDate, HodeshDate};
-use hodesh_types::CalendarDate;
+use luach_types::CalendarDate;
 
 // Year 0 begins at the first new moon of 2000.
 let start = HodeshDate::new(0, 1, 1)?;
@@ -212,7 +212,7 @@ assert_eq!(same_day.weekday(), today.weekday());
 assert_eq!(same_day.to_string(), "0026-09-18");
 ```
 
-To add a calendar of your own, implement two methods against `hodesh_types`
+To add a calendar of your own, implement two methods against `luach_types`
 alone:
 
 ```rust

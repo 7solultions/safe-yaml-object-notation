@@ -1,7 +1,7 @@
 //! Numeric codes for [`crate::error::ShlitaError`].
 //!
 //! The discipline is the one ADR syon_08 established for parse errors and
-//! `sheni` and `hodesh_types` carried upwards: a caller asks "is this
+//! `sheni` and `luach_types` carried upwards: a caller asks "is this
 //! specifically an out-of-range integer?" by matching a number, not by
 //! matching message text. The code is API; the wording is not.
 //!

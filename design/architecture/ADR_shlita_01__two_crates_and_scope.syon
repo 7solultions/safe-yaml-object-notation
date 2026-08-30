@@ -25,7 +25,7 @@ architecture-decision-record:
     them as one would be three crates wearing a single name.
   decision: |
     Two crates, splitting on the same line the workspace has now used twice --
-    between sheni and shelishi, and again between hodesh_types and
+    between sheni and shelishi, and again between luach_types and
     hodesh_calendar. A lower crate defines the shapes; an upper one supplies
     the behaviour that only means something in motion.
 

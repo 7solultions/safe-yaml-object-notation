@@ -1,7 +1,7 @@
 # hodesh_calendar
 
 The calendars themselves, and the conversions between them. Built on
-[`hodesh_types`](../hodesh_types), which holds the day count they all convert
+[`luach_types`](../luach_types), which holds the day count they all convert
 through.
 
 | Calendar | What it is |
@@ -47,7 +47,7 @@ is near full, in every month of every year.
 
 ```rust
 use hodesh_calendar::{GregorianDate, HodeshDate};
-use hodesh_types::CalendarDate;
+use luach_types::CalendarDate;
 
 let start = HodeshDate::new(0, 1, 1)?;
 assert_eq!(start.to_gregorian().to_string(), "2000-01-06");

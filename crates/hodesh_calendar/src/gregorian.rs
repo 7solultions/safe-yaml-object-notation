@@ -19,7 +19,7 @@
 use std::fmt;
 use std::str::FromStr;
 
-use hodesh_types::{CalendarDate, DateError, FixedDay, HodeshCode};
+use luach_types::{CalendarDate, DateError, FixedDay, LuachCode};
 
 /// The calendar's name, as it appears in a [`DateError`].
 pub const CALENDAR: &str = "gregorian";
@@ -39,7 +39,7 @@ impl GregorianDate {
     pub fn new(year: i64, month: u8, day: u8) -> Result<GregorianDate, DateError> {
         if !(1..=12).contains(&month) {
             return Err(DateError::new(
-                HodeshCode::MonthOutOfRange,
+                LuachCode::MonthOutOfRange,
                 CALENDAR,
                 format!("month {month} does not exist; the Gregorian year has 12 months"),
             ));
@@ -47,7 +47,7 @@ impl GregorianDate {
         let last = days_in_month(year, month);
         if day < 1 || day > last {
             return Err(DateError::new(
-                HodeshCode::DayOutOfRange,
+                LuachCode::DayOutOfRange,
                 CALENDAR,
                 format!(
                     "day {day} does not exist in month {month} of {year}, which has {last} days"
@@ -195,7 +195,7 @@ fn year_from_fixed(fixed: FixedDay) -> i64 {
 
 impl fmt::Display for GregorianDate {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{:04}-{:02}-{:02}", self.year, self.month, self.day)
+        f.write_str(&luach_types::format_ymd(self.year, self.month, self.day))
     }
 }
 
@@ -203,7 +203,7 @@ impl FromStr for GregorianDate {
     type Err = DateError;
 
     fn from_str(s: &str) -> Result<GregorianDate, DateError> {
-        let (year, month, day) = crate::parse_ymd(s, CALENDAR)?;
+        let (year, month, day) = luach_types::parse_ymd(s, CALENDAR)?;
         GregorianDate::new(year, month, day)
     }
 }
@@ -211,7 +211,7 @@ impl FromStr for GregorianDate {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use hodesh_types::Weekday;
+    use luach_types::Weekday;
 
     #[test]
     fn known_fixed_days() {
@@ -282,11 +282,11 @@ mod tests {
         assert!(GregorianDate::new(2024, 2, 29).is_ok());
         assert_eq!(
             GregorianDate::new(2023, 2, 29).unwrap_err().code(),
-            HodeshCode::DayOutOfRange
+            LuachCode::DayOutOfRange
         );
         assert_eq!(
             GregorianDate::new(2024, 13, 1).unwrap_err().code(),
-            HodeshCode::MonthOutOfRange
+            LuachCode::MonthOutOfRange
         );
     }
 
@@ -304,7 +304,7 @@ mod tests {
         assert_eq!("2000-01-06".parse::<GregorianDate>().unwrap(), date);
         assert_eq!(
             "2000-1-6".parse::<GregorianDate>().unwrap_err().code(),
-            HodeshCode::MalformedDate
+            LuachCode::MalformedDate
         );
     }
 }

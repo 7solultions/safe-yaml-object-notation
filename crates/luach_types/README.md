@@ -1,14 +1,18 @@
-# hodesh_types
+# luach_types
 
-The calendar-agnostic half of the hodesh crates. It knows what a **day** is
-and nothing about what a **date** is.
+The calendar-agnostic base every calendar in this workspace stands on. It
+knows what a **day** is and nothing about what a **date** is.
+
+*Luach* (לוּחַ) is the board a calendar is written on, which is what this crate
+is: the surface, not any of the calendars drawn on it.
 
 | Item | What it is |
 |------|------------|
 | `FixedDay` | A count of days, day 1 at proleptic Gregorian 0001-01-01 (the *rata die*). Every calendar converts through it. |
 | `Weekday` | The seven-day week, Monday first, per ISO 8601. A property of the day, so every calendar gets it free. |
 | `CalendarDate` | The contract a calendar implements: a date to a `FixedDay` and back. Everything else is provided. |
-| `DateError` / `HodeshCode` | Why a date cannot exist, with a stable numeric code in the `601-699` band. |
+| `DateError` / `LuachCode` | Why a date cannot exist, with a stable numeric code in the `601-699` band. |
+| `parse_ymd` / `format_ymd` | The canonical `YYYY-MM-DD` text form, one strict spelling, shared by every calendar. |
 
 ## Why a day count
 
@@ -18,7 +22,7 @@ one count is linear: a calendar states two things about itself and is then
 connected to every other calendar without knowing they exist.
 
 ```rust
-use hodesh_types::{CalendarDate, FixedDay, Weekday};
+use luach_types::{CalendarDate, FixedDay, Weekday};
 
 let day = FixedDay::new(730_120); // proleptic Gregorian 2000-01-01
 assert_eq!(day.weekday(), Weekday::Saturday);

@@ -39,3 +39,6 @@ crates/syon-python/.venv/
 
 # Rendered ADR book (see `task adr-pdf`)
 /build/
+
+# Claude Code local session state
+.claude/
