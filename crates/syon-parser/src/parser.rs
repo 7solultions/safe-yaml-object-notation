@@ -133,6 +133,13 @@ fn block_header_line(line: &str) -> Option<usize> {
     is_value.then(|| line.len() - line.trim_start().len())
 }
 
+/// The info string on a document-fence opener: everything after `---` on the
+/// line. Empty for a bare `---`, which is a YAML stream marker rather than a
+/// fence, and is what keeps the two apart.
+fn fence_info_string(line: &str) -> &str {
+    line.strip_prefix("---").unwrap_or("").trim_end()
+}
+
 fn preflight(input: &str) -> Result<(), SyonError> {
     let mut seen_content = false;
     // Line number of the currently-open ``` fence, if any. Tracked here
@@ -173,6 +180,27 @@ fn preflight(input: &str) -> Result<(), SyonError> {
             block_indent = Some(indent);
         }
 
+        // Document fences (Block 2), column 0 only, and handled before the
+        // stream-marker checks below so the two cannot be confused.
+        //
+        // A fence opens with `---` carrying an info string and closes with
+        // `...`. The close is optional: a fence that runs to end of file is
+        // complete, exactly as a YAML document is. That is why there is no
+        // unterminated-fence error any more -- there is no such thing.
+        //
+        // Inside a fence the body is another media type entirely, so none of
+        // SYON's forbidden-construct checks apply to it.
+        if open_fence.is_some() {
+            if t == "..." {
+                open_fence = None;
+            }
+            continue;
+        }
+        if line.starts_with("---") && !fence_info_string(line).is_empty() {
+            open_fence = Some(ln);
+            continue;
+        }
+
         // A single leading `---` is harmless: it opens the one document this
         // file contains. What SYON forbids is a multi-document stream, so
         // only a marker after content has begun is an error.
@@ -191,7 +219,7 @@ fn preflight(input: &str) -> Result<(), SyonError> {
         if t == "..." || t.starts_with("... ") {
             return Err(SyonError::forbidden(
                 ErrorCode::DocumentEndMarker,
-                format!("line {ln}: `...` document-end marker is not allowed in SYON"),
+                format!("line {ln}: `...` closes a document fence, but none is open"),
             ));
         }
         if t == "?" || t.starts_with("? ") {
@@ -199,19 +227,6 @@ fn preflight(input: &str) -> Result<(), SyonError> {
                 ErrorCode::ComplexKey,
                 format!("line {ln}: complex key `?` is not allowed in SYON"),
             ));
-        }
-
-        // Track ``` fences so an unterminated one is an error rather than a
-        // document that silently swallows the rest of the file. Column 0 only,
-        // matching `fence_open`/`fence_close` in the grammar: a ``` inside a
-        // `|` block scalar is indented under its header, so it is content.
-        if line.starts_with("```") {
-            if open_fence.is_some() {
-                open_fence = None;
-            } else {
-                open_fence = Some(ln);
-            }
-            continue;
         }
 
         // `[[[ ... ]]]` was SYON's own literal escape hatch. It is gone: a
@@ -241,13 +256,6 @@ fn preflight(input: &str) -> Result<(), SyonError> {
         //
         // These constructs are rejected in `check_node_start` instead, which
         // runs once the grammar has established where each node begins.
-    }
-
-    if let Some(ln) = open_fence {
-        return Err(SyonError::syntax(
-            ErrorCode::UnterminatedFence,
-            format!("line {ln}: unterminated ``` document fence"),
-        ));
     }
 
     Ok(())
@@ -1463,7 +1471,6 @@ mod tests {
             ("a: 1\n...\n", ErrorCode::DocumentEndMarker),
             ("? a\n", ErrorCode::ComplexKey),
             ("desc: [[[\n  x\n  ]]]\n", ErrorCode::LiteralBlockRemoved),
-            ("```path.json\nkey: value\n", ErrorCode::UnterminatedFence),
             ("key: &anchor\n", ErrorCode::Anchor),
             ("key: *alias\n", ErrorCode::Alias),
             ("key: !!str x\n", ErrorCode::ExplicitTag),
@@ -1477,10 +1484,10 @@ mod tests {
 
     #[test]
     fn display_carries_the_code() {
-        let err = parse("```path.json\nkey: value\n").unwrap_err();
+        let err = parse("a: 1\n...\n").unwrap_err();
         let text = err.to_string();
-        assert!(text.starts_with("[SYON-202]"), "got {text}");
-        assert!(text.contains("unterminated ``` document fence"), "got {text}");
+        assert!(text.starts_with("[SYON-118]"), "got {text}");
+        assert!(text.contains("closes a document fence"), "got {text}");
     }
 
     // --- Forbidden constructs ---
@@ -1564,7 +1571,7 @@ mod tests {
 
     #[test]
     fn multi_document_fence_separates_documents() {
-        let input = "```config.json\nkey: value\n```\n";
+        let input = "---config.json\nkey: value\n...\n";
         let file = parse(input).unwrap();
         let fenced = file.documents.iter().find(|d| d.path.is_some()).unwrap();
         assert_eq!(fenced.path.as_deref(), Some("config"));
@@ -1572,19 +1579,21 @@ mod tests {
     }
 
     #[test]
-    fn unterminated_fence_is_rejected() {
-        // Regression: `fence_open` and `fence_close` are independent grammar
-        // rules, so an unmatched open used to parse cleanly and absorb the
-        // rest of the file as its body. syon-go already rejected this.
-        let err = parse("```path.json\nkey: value\n").unwrap_err();
-        assert_eq!(err.code(), ErrorCode::UnterminatedFence);
+    fn a_fence_may_run_to_end_of_file_without_a_close() {
+        // `...` is optional, exactly as YAML's document-end marker is: a fence
+        // that reaches the end of the file is complete, not truncated. This
+        // replaced an earlier rule that rejected an unclosed fence outright.
+        let file = parse("---path.json\nkey: value\n").unwrap();
+        let fenced = file.documents.iter().find(|d| d.path.is_some()).unwrap();
+        assert_eq!(fenced.path.as_deref(), Some("path"));
+        assert_eq!(fenced.format.as_deref(), Some("json"));
     }
 
     #[test]
-    fn paired_fences_still_parse_after_the_unterminated_check() {
+    fn paired_fences_each_keep_their_own_path() {
         // Two fenced documents in a row: the close of the first must not be
         // read as the open of the second.
-        let input = "```a.json\nkey: value\n```\n```b.json\nother: thing\n```\n";
+        let input = "---a.json\nkey: value\n...\n---b.json\nother: thing\n...\n";
         let file = parse(input).unwrap();
         let paths: Vec<_> = file.documents.iter().filter_map(|d| d.path.as_deref()).collect();
         assert_eq!(paths, vec!["a", "b"]);

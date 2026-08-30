@@ -95,15 +95,19 @@ comment_text = { not_nl* }
 comment = { indent ~ "#" ~ (SP ~ comment_text | &(NEWLINE | EOI)) ~ (NEWLINE | EOI) }
 
 // ---------------------------------------------------------------------------
-// Document fence (Block 2) — triple-backtick, column 0 only
+// Document fence (Block 2) — YAML's own document markers, column 0 only.
+// Opens with `---` carrying an info string; closes with `...`, which is
+// optional when the fence runs to end of file. A *bare* `---` stays
+// forbidden (see `forbidden_doc_start`): the info string is what separates
+// a fence open from a YAML multi-document stream marker.
 // ---------------------------------------------------------------------------
 
 path_char    = _{ !("." | NEWLINE) ~ ANY }
 format_char  = _{ !(NEWLINE) ~ ANY }
 fence_path   = { path_char* }
 fence_format = { format_char+ }
-fence_open  = { "```" ~ fence_path ~ "." ~ fence_format ~ NEWLINE }
-fence_close = { "```" ~ (NEWLINE | EOI) }
+fence_open  = { "---" ~ fence_path ~ "." ~ fence_format ~ NEWLINE }
+fence_close = { "..." ~ (NEWLINE | EOI) }
 
 // ---------------------------------------------------------------------------
 // Values (recursive)

@@ -23,7 +23,7 @@ pub struct Phase1Counts {
     /// Count of `|` block scalars. Valid YAML 1.2, so these do not cost
     /// compatibility -- they are counted because they still cost complexity.
     pub literal_blocks: u64,
-    /// Count of ` ```path.format ` document fences (Block 2).
+    /// Count of `---path.format` document fences (Block 2).
     ///
     /// TODO: split into pure fences (YAML-compatible) and named fences
     /// (not compatible), the way `[[[` and `|` were split by removing `[[[`.
@@ -186,7 +186,7 @@ mod tests {
     fn a_fence_is_the_only_thing_that_costs_compatibility() {
         // One compatible mapping entry against one fence: a mix, hence the
         // 50% split rather than 0%.
-        let c = counts("```config/settings.json\nkey: value\n```\n");
+        let c = counts("---config/settings.json\nkey: value\n...\n");
         assert_eq!(c.fences, 1);
         assert!(!c.yaml_compatible());
         assert_eq!(c.yaml_compatibility_percent(), 50);
@@ -209,7 +209,7 @@ mod tests {
         // NOTE: fence bodies must currently also be valid, non-forbidden
         // SYON text (e.g. real embedded JSON with `{`/`[` is rejected by
         // preflight()) -- a known gap, tracked separately from phase1.
-        let c = counts("```config/settings.json\nkey: value\n```\n");
+        let c = counts("---config/settings.json\nkey: value\n...\n");
         assert_eq!(c.fences, 1);
         assert_eq!(c.fence_paths, vec!["config/settings"]);
         assert_eq!(c.fence_formats, vec!["json"]);
