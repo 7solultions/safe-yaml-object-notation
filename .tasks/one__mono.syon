@@ -130,6 +130,9 @@ tasks:
     summary: |
         Copy spec/ into docs/ and refresh the ADR download link. Runs alongside
         `doc:docs-sync`, which handles the decision records every project has.
+    # Defined in `.tasks/`, so it runs there without this; `path:` resolves
+    # from the project root.
+    path: .
     cmds:
       - mkdir -p docs/spec
       - cp spec/*.md docs/spec/
@@ -139,6 +142,7 @@ tasks:
     summary: |
         Render every ADR into build/ADR__<date>.pdf; requires typst. The ADR
         book and the scripts that build it exist only here.
+    path: .
     cmds:
       - python3 scripts/adr_book.py
       - typst compile --root . design/architecture/typst/adr_book.typ "build/ADR__$(date +%Y-%m-%d).pdf"
