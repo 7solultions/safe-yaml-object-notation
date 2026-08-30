@@ -1,0 +1,3 @@
+[submodule "depends_on/aseh_tasks"]
+	path = depends_on/aseh_tasks
+	url = git@github.com:7solultions/aseh_tasks.git

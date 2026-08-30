@@ -1,0 +1,144 @@
+# Tasks local to one__mono.
+#
+# The generic cargo tasks -- build, test, check, lint, format, clean, docs --
+# come from the shared `rust` namespace. What is here is what only this
+# workspace has: its individual crates, the Python and C bindings, the
+# documentation site, and the phase-1 usage report.
+version: 3
+flags:
+    silent: true
+    interactive: false
+
+summary: |
+  The crates, bindings, docs and reports specific to the SYON workspace.
+
+vars:
+  one__name: one__mono
+  one__version: 0.1.0
+
+tasks:
+  # ── individual crates ────────────────────────────────────────────────────────
+  build-parser:
+    summary: Compile the syon-parser library crate
+    cmds:
+      - cargo build -p syon-parser
+
+  build-cli:
+    summary: Compile the syon-cli binary crate
+    cmds:
+      - cargo build -p syon-cli
+
+  build-sheni:
+    summary: Compile sheni_types, the type layer over the parser
+    cmds:
+      - cargo build -p sheni
+
+  build-shelishi:
+    summary: Compile shelishi_schema, the schema layer over sheni
+    cmds:
+      - cargo build -p shelishi
+
+  build-luach:
+    summary: Compile luach_types, what is true of every calendar
+    cmds:
+      - cargo build -p luach_types
+
+  build-hodesh:
+    summary: Compile hodesh_calendar, the calendars themselves
+    cmds:
+      - cargo build -p hodesh_calendar
+
+  build-shlita:
+    summary: Compile shlita_types
+    cmds:
+      - cargo build -p shlita_types
+
+  test-parser:
+    summary: Run unit tests for syon-parser
+    cmds:
+      - cargo test -p syon-parser
+
+  test-sheni:
+    summary: Run unit tests for sheni_types
+    cmds:
+      - cargo test -p sheni
+
+  test-shelishi:
+    summary: Run unit tests for shelishi_schema
+    cmds:
+      - cargo test -p shelishi
+
+  test-luach:
+    summary: Run unit tests for luach_types
+    cmds:
+      - cargo test -p luach_types
+
+  test-hodesh:
+    summary: Run unit tests for hodesh_calendar
+    cmds:
+      - cargo test -p hodesh_calendar
+
+  test-shlita:
+    summary: Run unit tests for shlita_types
+    cmds:
+      - cargo test -p shlita_types
+
+  # ── running the parser ───────────────────────────────────────────────────────
+  run-cli:
+    summary: Parse a .syon file and print its AST as JSON (pass the path after --)
+    cmds:
+      - cargo run -p syon-cli -- {{ cli_args }}
+
+  phase1-report:
+    summary: |
+        Evaluate block usage, complexity and YAML compatibility across .syon
+        files; writes phase1.report.syon
+    cmds:
+      - cargo run -q -p syon-cli -- phase1 {{ cli_args }}
+
+  phase1-report-go:
+    summary: The same report from the Go implementation; writes syon-go/phase1.report.syon
+    path: syon-go
+    cmds:
+      - go run ./cmd/phase1 {{ cli_args }}
+
+  # ── bindings ─────────────────────────────────────────────────────────────────
+  build-python-bindings:
+    summary: Build and install the syon Python extension in development mode
+    cmds:
+      - maturin develop -m crates/syon-python/Cargo.toml
+
+  test-python-bindings:
+    summary: Run the pytest suite for the Python extension
+    cmds:
+      - python3 -m pytest crates/syon-python/tests/ -v
+
+  build-ffi:
+    summary: Build syon-parser as cdylib and staticlib in release mode
+    cmds:
+      - cargo build -p syon-parser --release
+
+  test-ffi:
+    summary: Compile and run the C FFI integration test
+    deps: [build-ffi]
+    cmds:
+      - cc tests/ffi/test_ffi.c -L target/release -lsyon_parser -o /tmp/test_ffi
+      - /tmp/test_ffi
+
+  # ── documentation, the parts only this project has ───────────────────────────
+  docs-spec:
+    summary: |
+        Copy spec/ into docs/ and refresh the ADR download link. Runs alongside
+        `doc:docs-sync`, which handles the decision records every project has.
+    cmds:
+      - mkdir -p docs/spec
+      - cp spec/*.md docs/spec/
+      - python3 scripts/adr_pdf_link.py
+
+  adr-pdf:
+    summary: |
+        Render every ADR into build/ADR__<date>.pdf; requires typst. The ADR
+        book and the scripts that build it exist only here.
+    cmds:
+      - python3 scripts/adr_book.py
+      - typst compile --root . design/architecture/typst/adr_book.typ "build/ADR__$(date +%Y-%m-%d).pdf"

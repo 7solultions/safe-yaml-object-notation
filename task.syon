@@ -1,0 +1,76 @@
+# TODO: add url like taskfile.dev
+version: 3
+flags:
+    silent: false
+    interactive: true
+
+summary: |
+    SYON -- a safe, simple and structured YAML object notation.
+
+    The generic cargo tasks come from `depends_on/aseh_tasks`, shared with
+    every other project in the suite. What is local to this workspace lives in
+    `.tasks/one__mono.syon`: its individual crates, the Python and C bindings,
+    the documentation site and the phase-1 usage report.
+
+    The `mac` namespace is left out; nothing here is macOS-specific.
+
+    `doc:docs-sync` copies the decision records every project has; this
+    project's `spec/` and typst ADR book are `one:docs-spec` and
+    `one:adr-pdf`, because no other project has them.
+
+includes:
+    core: ./depends_on/aseh_tasks/beriah__core.syon
+    rust: ./depends_on/aseh_tasks/beriah__rust.syon
+    py: ./depends_on/aseh_tasks/beriah__python.syon
+    aseh: ./depends_on/aseh_tasks/beriah__aseh.syon
+    doc: ./depends_on/aseh_tasks/beriah__documentation.syon
+    one: ./.tasks/one__mono.syon
+
+tools:
+    cargo:
+        summary: builds and tests the workspace
+        version:
+            cmd: cargo --version
+            match: 'cargo ([0-9]+\.[0-9]+\.[0-9]+)'
+            require: '>=1.89'
+        install: https://rustup.rs
+
+    git:
+        summary: tracks the shared task definitions as a submodule
+        version:
+            cmd: git --version
+            require: '>=2.5.0'
+
+    python3:
+        summary: runs the ADR book and docs-sync scripts
+        version:
+            cmd: python3 --version
+            require: '>=3.12'
+
+    maturin:
+        summary: builds the syon Python extension
+        version:
+            cmd: maturin --version
+        install: pip install maturin
+        optional: true
+
+    typst:
+        summary: renders the ADR log to PDF
+        version:
+            cmd: typst --version
+        install: brew install typst
+        optional: true
+
+    zensical:
+        summary: builds the documentation site
+        version:
+            cmd: zensical --version
+        install: pip install zensical
+        optional: true
+
+    go:
+        summary: runs the Go implementation's phase-1 report
+        version:
+            cmd: go version
+        install: https://go.dev/dl/
+        optional: true
