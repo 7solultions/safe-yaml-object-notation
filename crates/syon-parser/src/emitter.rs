@@ -74,6 +74,40 @@ const FENCE_OPEN: &str = "---";
 /// document ends.
 const FENCE_CLOSE: &str = "...";
 
+/// How to write. Every option trades a shape a reader prefers against a
+/// permission the reader's parser has to be given.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct EmitOptions {
+    /// Write a sequence of mappings as `- key: value` rather than putting the
+    /// dash on a line of its own.
+    ///
+    /// **Off by default, and the default is the safe one.** The compact form is
+    /// a line shorter and much easier to read — it is how a reference like
+    ///
+    /// ```text
+    /// feeds_gate:
+    ///   - id: 01a054a4-72aa-7ff2-8c83-fcdd9867e2e7
+    ///     alias: Release 1.0
+    /// ```
+    ///
+    /// is naturally written. It is also the "key in line after list" construct,
+    /// which [`crate::parse`] refuses unless
+    /// [`crate::ParseOptions::allow_key_in_line_after_list`] is set. So a
+    /// producer may only turn this on if it knows every consumer of its files
+    /// reads them with that permission — which is a claim about a whole
+    /// ecosystem, not about one call site, and is why it is not the default.
+    pub compact_sequence_mappings: bool,
+}
+
+impl Default for EmitOptions {
+    /// Output that [`crate::parse`] accepts with no permissions granted.
+    fn default() -> Self {
+        EmitOptions {
+            compact_sequence_mappings: false,
+        }
+    }
+}
+
 /// Whether [`emit_file`] can reproduce this file's document structure.
 ///
 /// `false` for a file holding more than one *unfenced* document, which has no
@@ -90,12 +124,17 @@ pub fn is_faithful(file: &SyonFile) -> bool {
 
 /// Renders a whole file, fences and all.
 pub fn emit_file(file: &SyonFile) -> String {
+    emit_file_with(file, EmitOptions::default())
+}
+
+/// Renders a whole file with explicit options.
+pub fn emit_file_with(file: &SyonFile, options: EmitOptions) -> String {
     let mut out = String::new();
     for (index, document) in file.documents.iter().enumerate() {
         if index > 0 {
             out.push('\n');
         }
-        emit_document_into(document, &mut out);
+        emit_document_into(document, options, &mut out);
     }
     out
 }
@@ -103,7 +142,7 @@ pub fn emit_file(file: &SyonFile) -> String {
 /// Renders one document.
 pub fn emit_document(document: &Document) -> String {
     let mut out = String::new();
-    emit_document_into(document, &mut out);
+    emit_document_into(document, EmitOptions::default(), &mut out);
     out
 }
 
@@ -112,12 +151,17 @@ pub fn emit_document(document: &Document) -> String {
 /// What a consumer holding a `Value` wants — a project file, a task
 /// definition — where the fence machinery is not in play.
 pub fn emit(value: &Value) -> String {
+    emit_with(value, EmitOptions::default())
+}
+
+/// Renders a bare value with explicit options.
+pub fn emit_with(value: &Value, options: EmitOptions) -> String {
     let mut out = String::new();
-    emit_value(value, 0, &mut out);
+    emit_value(value, 0, options, &mut out);
     out
 }
 
-fn emit_document_into(document: &Document, out: &mut String) {
+fn emit_document_into(document: &Document, options: EmitOptions, out: &mut String) {
     // A document carries a fence only when it was introduced by one. The first
     // document in a file usually was not, and wrapping it would change what the
     // file means.
@@ -129,17 +173,17 @@ fn emit_document_into(document: &Document, out: &mut String) {
         out.push_str(document.format.as_deref().unwrap_or(""));
         out.push('\n');
     }
-    emit_value(&document.body, 0, out);
+    emit_value(&document.body, 0, options, out);
     if fenced {
         out.push_str(FENCE_CLOSE);
         out.push('\n');
     }
 }
 
-fn emit_value(value: &Value, depth: usize, out: &mut String) {
+fn emit_value(value: &Value, depth: usize, options: EmitOptions, out: &mut String) {
     match value {
-        Value::Mapping(entries) => emit_mapping(entries, depth, out),
-        Value::Sequence(items) => emit_sequence(items, depth, out),
+        Value::Mapping(entries) => emit_mapping(entries, depth, options, out),
+        Value::Sequence(items) => emit_sequence(items, depth, options, out),
         Value::LiteralBlock(text) => emit_block_body(text, depth, out),
         Value::Scalar(text) => {
             let padding = INDENT.repeat(depth);
@@ -152,7 +196,7 @@ fn emit_value(value: &Value, depth: usize, out: &mut String) {
     }
 }
 
-fn emit_mapping(entries: &[MappingEntry], depth: usize, out: &mut String) {
+fn emit_mapping(entries: &[MappingEntry], depth: usize, options: EmitOptions, out: &mut String) {
     let padding = INDENT.repeat(depth);
     for entry in entries {
         emit_comments(&entry.leading_comments, &padding, out);
@@ -182,17 +226,17 @@ fn emit_mapping(entries: &[MappingEntry], depth: usize, out: &mut String) {
             }
             Value::Mapping(nested) => {
                 emit_trailing(&entry.trailing_comment, out);
-                emit_mapping(nested, depth + 1, out);
+                emit_mapping(nested, depth + 1, options, out);
             }
             Value::Sequence(items) => {
                 emit_trailing(&entry.trailing_comment, out);
-                emit_sequence(items, depth + 1, out);
+                emit_sequence(items, depth + 1, options, out);
             }
         }
     }
 }
 
-fn emit_sequence(items: &[SequenceItem], depth: usize, out: &mut String) {
+fn emit_sequence(items: &[SequenceItem], depth: usize, options: EmitOptions, out: &mut String) {
     let padding = INDENT.repeat(depth);
     for item in items {
         emit_comments(&item.leading_comments, &padding, out);
@@ -242,13 +286,42 @@ fn emit_sequence(items: &[SequenceItem], depth: usize, out: &mut String) {
             // emitter that writes files its own parser rejects by default is
             // worse than one that writes a plainer file, so the plainer file
             // wins. Every `.syon` in this repository is written this way too.
+            // A mapping may be spliced onto the dash when the caller has said
+            // its readers allow it; anything else gets the plain form.
+            Value::Mapping(nested) if options.compact_sequence_mappings => {
+                let mut rendered = String::new();
+                emit_mapping(nested, depth + 1, options, &mut rendered);
+                splice_marker(&padding, &rendered, &item.trailing_comment, out);
+            }
             nested => {
                 out.push_str(&padding);
                 out.push('-');
                 emit_trailing(&item.trailing_comment, out);
-                emit_value(nested, depth + 1, out);
+                emit_value(nested, depth + 1, options, out);
             }
         }
+    }
+}
+
+/// Writes `rendered` with its first line's indentation replaced by `- `.
+///
+/// `INDENT` is exactly as wide as `- `, so every continuation line already sits
+/// in the right column.
+fn splice_marker(padding: &str, rendered: &str, trailing: &Option<String>, out: &mut String) {
+    let mut lines = rendered.lines();
+    if let Some(first) = lines.next() {
+        let body = first
+            .strip_prefix(padding)
+            .and_then(|rest| rest.strip_prefix(INDENT))
+            .unwrap_or(first);
+        out.push_str(padding);
+        out.push_str("- ");
+        out.push_str(body);
+        emit_trailing(trailing, out);
+    }
+    for line in lines {
+        out.push_str(line);
+        out.push('\n');
     }
 }
 
@@ -596,6 +669,66 @@ steps:
             unfaithful <= 2,
             "{unfaithful} files hold several unfenced documents"
         );
+    }
+
+    #[test]
+    fn the_compact_form_is_off_by_default_and_on_when_asked() {
+        // The shape Kadima writes its references in. Readable, and it needs a
+        // permission — which is exactly why it is opt-in.
+        let tree = Value::Mapping(vec![entry(
+            "feeds_gate",
+            Value::Sequence(vec![item(Value::Mapping(vec![
+                entry("id", Value::Scalar("01a054a4".to_string())),
+                entry("alias", Value::Scalar("Release 1.0".to_string())),
+            ]))]),
+        )]);
+
+        let plain = emit(&tree);
+        assert!(plain.contains("  -\n    id: 01a054a4"), "got:\n{plain}");
+        // The default output parses with nothing granted.
+        assert!(parse(&plain).is_ok(), "the safe form needs no permission");
+
+        let compact = emit_with(
+            &tree,
+            EmitOptions {
+                compact_sequence_mappings: true,
+            },
+        );
+        assert!(compact.contains("  - id: 01a054a4"), "got:\n{compact}");
+        assert!(
+            compact.contains("    alias: Release 1.0"),
+            "got:\n{compact}"
+        );
+    }
+
+    #[test]
+    fn the_compact_form_needs_the_permission_it_documents() {
+        // Stated as a test so nobody flips the default without meeting this.
+        let tree = Value::Mapping(vec![entry(
+            "feeds_gate",
+            Value::Sequence(vec![item(Value::Mapping(vec![
+                entry("id", Value::Scalar("01a054a4".to_string())),
+                entry("alias", Value::Scalar("Release 1.0".to_string())),
+            ]))]),
+        )]);
+        let compact = emit_with(
+            &tree,
+            EmitOptions {
+                compact_sequence_mappings: true,
+            },
+        );
+
+        assert!(parse(&compact).is_err(), "default options must refuse it");
+
+        let permitted = ParseOptions {
+            strict: false,
+            allow_key_in_line_after_list: true,
+            ..Default::default()
+        };
+        let mut read = crate::parse_with(&compact, permitted).expect("permitted options read it");
+        // The hand-built tree carries no line numbers, and the parsed one does.
+        forget_lines(&mut read);
+        assert_eq!(read.documents[0].body, tree);
     }
 
     #[test]

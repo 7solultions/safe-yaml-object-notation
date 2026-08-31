@@ -7,7 +7,7 @@ pub mod parser;
 pub mod phase1;
 
 pub use ast::{Document, MappingEntry, SequenceItem, SyonFile, Value};
-pub use emitter::{emit, emit_document, emit_file};
+pub use emitter::{emit, emit_document, emit_file, emit_file_with, emit_with, EmitOptions};
 pub use error::SyonError;
 pub use error_code::ErrorCode;
 pub use parser::{parse, parse_document, parse_with, ParseOptions};
