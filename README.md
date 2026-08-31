@@ -4,7 +4,7 @@
 
 ```
 crates/
-  syon-parser/     # pest-based parser, produces an AST
+  syon-parser/     # pest-based parser and emitter, AST in both directions
   syon-cli/        # `syon` binary — parses a .syon file and prints the AST as JSON
   syon-python/     # PyO3 bindings exposing syon-parser to Python
   sheni_types/     # Sheni (layer 2), the type layer over the parsed AST
